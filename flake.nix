@@ -61,10 +61,13 @@
         log "Uploading build script..."
         ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" bash -c "cat > /root/build.sh" <<REMOTE
         #!/usr/bin/env bash
-        set -euxo pipefail
+        set -euo pipefail
 
         export HCLOUD_TOKEN="$HCLOUD_TOKEN"
         export CACHIX_AUTH_TOKEN="$CACHIX_AUTH_TOKEN"
+
+        # Enable command echo AFTER secrets are set
+        set -x
         SERVER_ID="$SERVER_ID"
         REPO_URL="$REPO_URL"
         CACHE_NAME="$CACHE_NAME"
@@ -90,9 +93,11 @@
         echo ">>> Installing tools (cachix, git, hcloud)..."
         nix profile install nixpkgs#cachix nixpkgs#git nixpkgs#hcloud
 
-        # Setup cachix
+        # Setup cachix (disable echo to hide token)
         echo ">>> Setting up cachix..."
+        set +x
         cachix authtoken "\$CACHIX_AUTH_TOKEN"
+        set -x
 
         # Clone repo
         echo ">>> Cloning repo..."
@@ -130,10 +135,26 @@
     in
     {
       packages.${system} = {
-        browser = pkgs.ungoogled-chromium.overrideAttrs (old: {
+        # Override the actual browser build (not the wrapper) to add our patches
+        browser = let
+          patchedBrowser = pkgs.ungoogled-chromium.passthru.browser.overrideAttrs (old: {
+            pname = "axium-browser";
+            patches = old.patches ++ customPatches;
+          });
+          patchedSandbox = patchedBrowser.passthru.sandbox;
+        in pkgs.runCommand "axium-${patchedBrowser.version}" {
+          inherit (patchedBrowser) version meta;
           pname = "axium";
-          patches = (old.patches or []) ++ customPatches;
-        });
+          passthru = {
+            browser = patchedBrowser;
+            sandbox = patchedSandbox;
+          };
+        } ''
+          mkdir -p $out/bin
+          ln -s ${patchedBrowser}/bin/* $out/bin/
+          ln -s ${patchedBrowser}/lib $out/lib
+          ln -s ${patchedBrowser}/share $out/share
+        '';
 
         cloud-build = cloudBuildScript;
         default = self.packages.${system}.browser;
