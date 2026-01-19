@@ -33,7 +33,6 @@
         CACHE_NAME="axium"
 
         log() { echo -e "\033[0;32m[+]\033[0m $1"; }
-        warn() { echo -e "\033[1;33m[!]\033[0m $1"; }
 
         log "Creating Hetzner server: $SERVER_NAME ($SERVER_TYPE)..."
         SERVER_JSON=$(${pkgs.hcloud}/bin/hcloud server create \
@@ -62,74 +61,70 @@
         log "Uploading build script..."
         ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" bash -c "cat > /root/build.sh" <<REMOTE
         #!/usr/bin/env bash
-        set -x
+        set -euxo pipefail
+
+        export HCLOUD_TOKEN="$HCLOUD_TOKEN"
+        export CACHIX_AUTH_TOKEN="$CACHIX_AUTH_TOKEN"
+        SERVER_ID="$SERVER_ID"
+        REPO_URL="$REPO_URL"
+        CACHE_NAME="$CACHE_NAME"
 
         cleanup() {
-          export HCLOUD_TOKEN="$HCLOUD_TOKEN"
-          hcloud server delete "$SERVER_ID" --poll-interval 5s
+          echo ""
+          echo "=== Self-destructing server in 30 seconds... ==="
+          sleep 30
+          hcloud server delete "\$SERVER_ID" --poll-interval 5s
         }
+        trap cleanup EXIT
 
         echo "=== Build started at \$(date) ==="
 
         # Install Nix
-        if ! curl -L https://nixos.org/nix/install | sh -s -- --daemon --yes; then
-          echo "FAILED: Nix install" > /root/build.status
-          cleanup
-          exit 1
-        fi
+        echo ">>> Installing Nix..."
+        curl -L https://nixos.org/nix/install | sh -s -- --daemon --yes
         source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
         mkdir -p ~/.config/nix
         echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
 
         # Install tools
-        if ! nix profile install nixpkgs#cachix nixpkgs#git nixpkgs#hcloud; then
-          echo "FAILED: Tool install" > /root/build.status
-          cleanup
-          exit 1
-        fi
+        echo ">>> Installing tools (cachix, git, hcloud)..."
+        nix profile install nixpkgs#cachix nixpkgs#git nixpkgs#hcloud
 
         # Setup cachix
-        cachix authtoken "$CACHIX_AUTH_TOKEN"
+        echo ">>> Setting up cachix..."
+        cachix authtoken "\$CACHIX_AUTH_TOKEN"
 
-        # Clone and build
-        if ! git clone "$REPO_URL" /build/axium; then
-          echo "FAILED: Git clone" > /root/build.status
-          cleanup
-          exit 1
-        fi
+        # Clone repo
+        echo ">>> Cloning repo..."
+        git clone "\$REPO_URL" /build/axium
         cd /build/axium
-        if ! nix build .#browser --cores 0 -j auto -L; then
-          echo "FAILED: Nix build" > /root/build.status
-          cleanup
-          exit 1
-        fi
+
+        # Build
+        echo ">>> Starting nix build..."
+        nix build .#browser --cores 0 -j auto -L
 
         # Push to cache
-        if ! cachix push "$CACHE_NAME" ./result; then
-          echo "FAILED: Cachix push" > /root/build.status
-          cleanup
-          exit 1
-        fi
+        echo ">>> Pushing to cachix..."
+        cachix push "\$CACHE_NAME" ./result
 
-        echo "=== Build finished at \$(date) ==="
-        echo "SUCCESS" > /root/build.status
-        cleanup
+        echo ""
+        echo "=== Build finished successfully at \$(date) ==="
         REMOTE
 
-        log "Starting detached build..."
-        ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" \
-          "chmod +x /root/build.sh && setsid /root/build.sh > /root/build.log 2>&1 &"
+        log "Installing screen and starting build session..."
+        ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" "apt-get update -qq && apt-get install -y -qq screen"
 
-        sleep 2
         log ""
-        log "Build running in background on $SERVER_IP"
+        log "============================================"
+        log "Connecting to build session..."
+        log "  - Watch the build progress"
+        log "  - Detach: Ctrl+A then D"
+        log "  - Reconnect: ssh root@$SERVER_IP screen -r"
+        log "  - Server self-destructs when build ends"
+        log "============================================"
         log ""
-        log "Monitor:  ssh root@$SERVER_IP tail -f /root/build.log"
-        log "Status:   ssh root@$SERVER_IP cat /root/build.status"
-        log "Server:   https://console.hetzner.cloud/projects -> Servers"
-        log ""
-        log "Server will self-destruct after build completes."
-        log "If build fails, manually delete: hcloud server delete $SERVER_ID"
+
+        ${pkgs.openssh}/bin/ssh $SSH_OPTS -t root@"$SERVER_IP" "screen -S build /root/build.sh"
       '';
 
     in
