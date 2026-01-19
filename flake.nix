@@ -59,39 +59,60 @@
         log "Uploading build script..."
         ${pkgs.openssh}/bin/ssh -o StrictHostKeyChecking=no root@"$SERVER_IP" bash -c "cat > /root/build.sh" <<REMOTE
         #!/usr/bin/env bash
-        set -euxo pipefail
         exec > >(tee /root/build.log) 2>&1
+
+        cleanup() {
+          echo "=== Deleting server in 60 seconds... ==="
+          sleep 60
+          export HCLOUD_TOKEN="$HCLOUD_TOKEN"
+          hcloud server delete "$SERVER_ID" --poll-interval 5s
+        }
 
         echo "=== Build started at \$(date) ==="
 
         # Install Nix
-        curl -L https://nixos.org/nix/install | sh -s -- --daemon --yes
+        if ! curl -L https://nixos.org/nix/install | sh -s -- --daemon --yes; then
+          echo "FAILED: Nix install" > /root/build.status
+          cleanup
+          exit 1
+        fi
         source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
         mkdir -p ~/.config/nix
         echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
 
         # Install tools
-        nix profile install nixpkgs#cachix nixpkgs#git nixpkgs#hcloud
+        if ! nix profile install nixpkgs#cachix nixpkgs#git nixpkgs#hcloud; then
+          echo "FAILED: Tool install" > /root/build.status
+          cleanup
+          exit 1
+        fi
 
         # Setup cachix
         cachix authtoken "$CACHIX_AUTH_TOKEN"
 
         # Clone and build
-        git clone "$REPO_URL" /build/axium
+        if ! git clone "$REPO_URL" /build/axium; then
+          echo "FAILED: Git clone" > /root/build.status
+          cleanup
+          exit 1
+        fi
         cd /build/axium
-        nix build .#browser --cores 0 -j auto -L
+        if ! nix build .#browser --cores 0 -j auto -L; then
+          echo "FAILED: Nix build" > /root/build.status
+          cleanup
+          exit 1
+        fi
 
         # Push to cache
-        cachix push "$CACHE_NAME" ./result
+        if ! cachix push "$CACHE_NAME" ./result; then
+          echo "FAILED: Cachix push" > /root/build.status
+          cleanup
+          exit 1
+        fi
 
         echo "=== Build finished at \$(date) ==="
         echo "SUCCESS" > /root/build.status
-
-        # Self-destruct
-        echo "Deleting server in 60 seconds..."
-        sleep 60
-        export HCLOUD_TOKEN="$HCLOUD_TOKEN"
-        hcloud server delete "$SERVER_ID" --poll-interval 5s
+        cleanup
         REMOTE
 
         log "Starting detached build..."
