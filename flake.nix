@@ -132,7 +132,7 @@
       packages.${system} = {
         browser = pkgs.ungoogled-chromium.overrideAttrs (old: {
           pname = "axium";
-          patches = old.patches ++ customPatches;
+          patches = (old.patches or []) ++ customPatches;
         });
 
         cloud-build = cloudBuildScript;
