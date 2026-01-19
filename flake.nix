@@ -52,13 +52,15 @@
         sleep 30
 
         for i in {1..30}; do
-          ${pkgs.openssh}/bin/ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
+          ${pkgs.openssh}/bin/ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             root@"$SERVER_IP" true 2>/dev/null && break
           sleep 10
         done
 
+        SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+
         log "Uploading build script..."
-        ${pkgs.openssh}/bin/ssh -o StrictHostKeyChecking=no root@"$SERVER_IP" bash -c "cat > /root/build.sh" <<REMOTE
+        ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" bash -c "cat > /root/build.sh" <<REMOTE
         #!/usr/bin/env bash
         exec > >(tee /root/build.log) 2>&1
 
@@ -115,7 +117,7 @@
         REMOTE
 
         log "Starting detached build..."
-        ${pkgs.openssh}/bin/ssh -o StrictHostKeyChecking=no root@"$SERVER_IP" \
+        ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" \
           "chmod +x /root/build.sh && nohup /root/build.sh > /dev/null 2>&1 &"
 
         log ""
