@@ -57,12 +57,18 @@
           sleep 10
         done
 
-        SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+        SSH_OPTS="-v -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+
+        log "Testing SSH connection..."
+        ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" "echo 'SSH OK'; hostname; uptime" || {
+          warn "SSH test failed!"
+          exit 1
+        }
 
         log "Uploading build script..."
         ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" bash -c "cat > /root/build.sh" <<REMOTE
         #!/usr/bin/env bash
-        exec > >(tee /root/build.log) 2>&1
+        set -x
 
         cleanup() {
           export HCLOUD_TOKEN="$HCLOUD_TOKEN"
@@ -116,9 +122,16 @@
         cleanup
         REMOTE
 
-        log "Starting detached build..."
+        log "Verifying build script uploaded..."
+        ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" "ls -la /root/build.sh && head -5 /root/build.sh"
+
+        log "Starting detached build with setsid..."
         ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" \
-          "chmod +x /root/build.sh && nohup /root/build.sh < /dev/null > /dev/null 2>&1 & disown"
+          "chmod +x /root/build.sh && setsid /root/build.sh > /root/build.log 2>&1 &"
+
+        log "Checking if process started..."
+        sleep 2
+        ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" "ps aux | grep build.sh | grep -v grep || echo 'No process found'"
 
         log ""
         log "Build running in background on $SERVER_IP"
