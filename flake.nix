@@ -41,6 +41,7 @@
           --type "$SERVER_TYPE" \
           --image ubuntu-24.04 \
           --location hel1 \
+          --ssh-key V3 \
           -o json)
 
         SERVER_ID=$(echo "$SERVER_JSON" | ${pkgs.jq}/bin/jq -r '.server.id')
