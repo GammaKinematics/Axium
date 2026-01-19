@@ -62,11 +62,6 @@
         exec > >(tee /root/build.log) 2>&1
 
         cleanup() {
-          echo "=== Uploading logs... ==="
-          LOG_URL=\$(cat /root/build.log | curl -sF 'f:1=<-' ix.io)
-          echo "Logs: \$LOG_URL" | tee /root/log_url.txt
-          echo "=== Deleting server in 60 seconds... ==="
-          sleep 60
           export HCLOUD_TOKEN="$HCLOUD_TOKEN"
           hcloud server delete "$SERVER_ID" --poll-interval 5s
         }
