@@ -118,7 +118,7 @@
 
         log "Starting detached build..."
         ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" \
-          "chmod +x /root/build.sh && nohup /root/build.sh > /dev/null 2>&1 &"
+          "chmod +x /root/build.sh && nohup /root/build.sh < /dev/null > /dev/null 2>&1 & disown"
 
         log ""
         log "Build running in background on $SERVER_IP"
