@@ -29,19 +29,11 @@
 
         REPO_URL="https://github.com/GammaKinematics/Axium.git"
         SERVER_TYPE="''${SERVER_TYPE:-ccx33}"
-        SERVER_NAME="axium-builder-$$"
+        SERVER_NAME="axium-builder-$(date +%s)"
         CACHE_NAME="axium"
 
         log() { echo -e "\033[0;32m[+]\033[0m $1"; }
         warn() { echo -e "\033[1;33m[!]\033[0m $1"; }
-
-        cleanup() {
-          if [[ -n "''${SERVER_ID:-}" ]]; then
-            warn "Destroying server $SERVER_NAME..."
-            ${pkgs.hcloud}/bin/hcloud server delete "$SERVER_ID" || true
-          fi
-        }
-        trap cleanup EXIT
 
         log "Creating Hetzner server: $SERVER_NAME ($SERVER_TYPE)..."
         SERVER_JSON=$(${pkgs.hcloud}/bin/hcloud server create \
@@ -64,22 +56,57 @@
           sleep 10
         done
 
-        log "Running build on remote..."
-        ${pkgs.openssh}/bin/ssh -o StrictHostKeyChecking=no root@"$SERVER_IP" bash <<REMOTE
+        log "Uploading build script..."
+        ${pkgs.openssh}/bin/ssh -o StrictHostKeyChecking=no root@"$SERVER_IP" bash -c "cat > /root/build.sh" <<REMOTE
+        #!/usr/bin/env bash
         set -euxo pipefail
+        exec > >(tee /root/build.log) 2>&1
+
+        echo "=== Build started at \$(date) ==="
+
+        # Install Nix
         curl -L https://nixos.org/nix/install | sh -s -- --daemon --yes
         source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
         mkdir -p ~/.config/nix
         echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
-        nix profile install nixpkgs#cachix nixpkgs#git
+
+        # Install tools
+        nix profile install nixpkgs#cachix nixpkgs#git nixpkgs#hcloud
+
+        # Setup cachix
         cachix authtoken "$CACHIX_AUTH_TOKEN"
+
+        # Clone and build
         git clone "$REPO_URL" /build/axium
         cd /build/axium
         nix build .#browser --cores 0 -j auto -L
+
+        # Push to cache
         cachix push "$CACHE_NAME" ./result
+
+        echo "=== Build finished at \$(date) ==="
+        echo "SUCCESS" > /root/build.status
+
+        # Self-destruct
+        echo "Deleting server in 60 seconds..."
+        sleep 60
+        export HCLOUD_TOKEN="$HCLOUD_TOKEN"
+        hcloud server delete "$SERVER_ID" --poll-interval 5s
         REMOTE
 
-        log "Done! Cached at https://axium.cachix.org"
+        log "Starting detached build..."
+        ${pkgs.openssh}/bin/ssh -o StrictHostKeyChecking=no root@"$SERVER_IP" \
+          "chmod +x /root/build.sh && nohup /root/build.sh > /dev/null 2>&1 &"
+
+        log ""
+        log "Build running in background on $SERVER_IP"
+        log ""
+        log "Monitor:  ssh root@$SERVER_IP tail -f /root/build.log"
+        log "Status:   ssh root@$SERVER_IP cat /root/build.status"
+        log "Server:   https://console.hetzner.cloud/projects -> Servers"
+        log ""
+        log "Server will self-destruct after build completes."
+        log "If build fails, manually delete: hcloud server delete $SERVER_ID"
       '';
 
     in
