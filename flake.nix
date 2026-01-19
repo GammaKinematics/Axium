@@ -124,7 +124,7 @@
         log "============================================"
         log ""
 
-        ${pkgs.openssh}/bin/ssh $SSH_OPTS -t root@"$SERVER_IP" "screen -S build /root/build.sh"
+        ${pkgs.openssh}/bin/ssh $SSH_OPTS -t root@"$SERVER_IP" "screen -S build bash /root/build.sh"
       '';
 
     in
