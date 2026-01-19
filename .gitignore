@@ -1,0 +1,18 @@
+# Nix build outputs
+result
+result-*
+
+# Reference repos (large, not part of project)
+thorium/
+ungoogled-chromium/
+chromium/
+brave-core/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
