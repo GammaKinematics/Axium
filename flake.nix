@@ -26,8 +26,8 @@
 
         : "''${HCLOUD_TOKEN:?Set HCLOUD_TOKEN}"
         : "''${CACHIX_AUTH_TOKEN:?Set CACHIX_AUTH_TOKEN}"
-        : "''${REPO_URL:?Set REPO_URL to your Axium repo}"
 
+        REPO_URL="https://github.com/GammaKinematics/Axium.git"
         SERVER_TYPE="''${SERVER_TYPE:-ccx33}"
         SERVER_NAME="axium-builder-$$"
         CACHE_NAME="axium"
