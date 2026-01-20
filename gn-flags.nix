@@ -51,7 +51,6 @@
   enable_session_service = false;    # No "restore tabs?" prompt
   enable_webui_certificate_viewer = false;
   enable_chrome_notifications = false; # No desktop notifications
-  enable_speech_service = false;     # Voice search, dictation
   enable_screen_ai_service = false;  # OCR features
   enable_media_remoting = false;     # Cast media
   enable_rlz = false;                # Tracking
