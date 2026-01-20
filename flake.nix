@@ -176,8 +176,13 @@
             rm -f $out/libexec/chromium/chrome_200_percent.pak || true
           fi
 
-          # Create chromium binary wrapper
-          ln -s $out/libexec/chromium/chromium $out/bin/chromium
+          # Create chromium binary wrapper with sandbox support
+          cat > $out/bin/chromium <<'EOF'
+          #!/bin/sh
+          export CHROME_DEVEL_SANDBOX=/run/wrappers/bin/chrome-sandbox
+          exec "$(dirname "$0")/../libexec/chromium/chromium" "$@"
+          EOF
+          chmod +x $out/bin/chromium
 
           # Add 'axium' alias
           ln -s chromium $out/bin/axium
