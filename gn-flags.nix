@@ -53,7 +53,6 @@
   enable_chrome_notifications = false; # No desktop notifications
   enable_speech_service = false;     # Voice search, dictation
   enable_screen_ai_service = false;  # OCR features
-  enable_supervised_users = false;   # Family Link
   enable_media_remoting = false;     # Cast media
   enable_rlz = false;                # Tracking
   enable_offline_pages = false;      # Android-focused
