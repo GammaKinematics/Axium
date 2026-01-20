@@ -51,6 +51,17 @@
   enable_session_service = false;    # No "restore tabs?" prompt
   enable_webui_certificate_viewer = false;
   enable_chrome_notifications = false; # No desktop notifications
+  enable_speech_service = false;     # Voice search, dictation
+  enable_screen_ai_service = false;  # OCR features
+  enable_supervised_users = false;   # Family Link
+  enable_media_remoting = false;     # Cast media
+  enable_rlz = false;                # Tracking
+  enable_offline_pages = false;      # Android-focused
+  include_transport_security_state_preload_list = false; # ~500KB HSTS list
+
+  # === Disable Enterprise Bloat ===
+  enterprise_cloud_content_analysis = false;
+  enterprise_local_content_analysis = false;
 
   # === Disable PDF & Printing ===
   enable_pdf = false;                # Use external PDF viewer
