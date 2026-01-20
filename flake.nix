@@ -158,14 +158,6 @@
         } ''
           mkdir -p $out/bin $out/share
 
-          # Link binaries
-          for f in ${axiumBrowser}/bin/*; do
-            ln -s "$f" $out/bin/
-          done
-
-          # Add 'axium' alias
-          ln -s chromium $out/bin/axium
-
           # Copy libexec so we can strip bloat
           if [ -d "${axiumBrowser}/libexec" ]; then
             cp -r ${axiumBrowser}/libexec $out/libexec
@@ -183,6 +175,12 @@
             # Remove HiDPI resources (~1.2MB)
             rm -f $out/libexec/chromium/chrome_200_percent.pak || true
           fi
+
+          # Create chromium binary wrapper
+          ln -s $out/libexec/chromium/chromium $out/bin/chromium
+
+          # Add 'axium' alias
+          ln -s chromium $out/bin/axium
 
           # Link share
           if [ -d "${axiumBrowser}/share" ]; then
