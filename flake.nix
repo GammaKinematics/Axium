@@ -20,7 +20,7 @@
         ./patches/enable-vertical-tabs.patch
       ];
 
-      # Cloud build script
+      # Cloud build script - interactive mode
       cloudBuildScript = pkgs.writeShellScriptBin "axium-cloud-build" ''
         set -euo pipefail
 
@@ -33,6 +33,7 @@
         CACHE_NAME="axium"
 
         log() { echo -e "\033[0;32m[+]\033[0m $1"; }
+        warn() { echo -e "\033[0;33m[!]\033[0m $1"; }
 
         log "Creating Hetzner server: $SERVER_NAME ($SERVER_TYPE)..."
         SERVER_JSON=$(${pkgs.hcloud}/bin/hcloud server create \
@@ -58,102 +59,122 @@
 
         SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
-        log "Uploading build script..."
-        ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" bash -c "cat > /root/build.sh" <<REMOTE
-        #!/usr/bin/env bash
+        log "Installing Nix on remote server..."
+        ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" bash <<'SETUP'
         set -euo pipefail
-
-        export HCLOUD_TOKEN="$HCLOUD_TOKEN"
-        export CACHIX_AUTH_TOKEN="$CACHIX_AUTH_TOKEN"
-
-        # Enable command echo AFTER secrets are set
-        set -x
-        SERVER_ID="$SERVER_ID"
-        REPO_URL="$REPO_URL"
-        CACHE_NAME="$CACHE_NAME"
-
-        cleanup() {
-          echo ""
-          echo "=== Self-destructing server in 30 seconds... ==="
-          sleep 30
-          hcloud server delete "\$SERVER_ID" --poll-interval 5s
-        }
-        trap cleanup EXIT
-
-        echo "=== Build started at \$(date) ==="
-
-        # Install Nix
         echo ">>> Installing Nix..."
         curl -L https://nixos.org/nix/install | sh -s -- --daemon --yes
         source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
         mkdir -p ~/.config/nix
         echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
 
-        # Install tools
-        echo ">>> Installing tools (cachix, git, hcloud)..."
+        echo ">>> Installing tools..."
         nix profile install nixpkgs#cachix nixpkgs#git nixpkgs#hcloud
 
-        # Setup cachix (disable echo to hide token)
-        echo ">>> Setting up cachix..."
-        set +x
-        cachix authtoken "\$CACHIX_AUTH_TOKEN"
-        set -x
+        echo ">>> Setup complete"
+        SETUP
 
-        # Clone repo
-        echo ">>> Cloning repo..."
-        git clone "\$REPO_URL" /build/axium
-        cd /build/axium
+        log "Cloning repository..."
+        ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" "source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh && git clone $REPO_URL /build/axium"
 
-        # Build
-        echo ">>> Starting nix build..."
-        nix build .#browser --cores 0 -j auto -L
-
-        # Push to cache
-        echo ">>> Pushing to cachix..."
-        cachix push "\$CACHE_NAME" ./result
-
-        echo ""
-        echo "=== Build finished successfully at \$(date) ==="
-        REMOTE
-
-        log "Installing screen and starting build session..."
-        ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" "apt-get update -qq && apt-get install -y -qq screen"
+        # Save connection info locally
+        INFO_FILE="/tmp/axium-build-$$"
+        cat > "$INFO_FILE" <<EOF
+        SERVER_IP=$SERVER_IP
+        SERVER_ID=$SERVER_ID
+        CACHE_NAME=$CACHE_NAME
+        EOF
 
         log ""
         log "============================================"
-        log "Connecting to build session..."
-        log "  - Watch the build progress"
-        log "  - Detach: Ctrl+A then D"
-        log "  - Reconnect: ssh root@$SERVER_IP screen -r"
-        log "  - Server self-destructs when build ends"
+        log "  Server ready: $SERVER_IP"
+        log "============================================"
+        log ""
+        log "Saved to: $INFO_FILE"
+        log ""
+        warn "MANUAL STEPS:"
+        log ""
+        log "1. Connect to server:"
+        log "   ssh root@$SERVER_IP"
+        log ""
+        log "2. Start build:"
+        log "   cd /build/axium"
+        log "   nix build .#browser --cores 0 -j auto -L"
+        log ""
+        log "3. If build succeeds, push to cache:"
+        log "   cachix authtoken \$CACHIX_AUTH_TOKEN"
+        log "   cachix push $CACHE_NAME ./result"
+        log ""
+        log "4. Delete server when done:"
+        log "   hcloud server delete $SERVER_ID"
+        log ""
         log "============================================"
         log ""
 
-        ${pkgs.openssh}/bin/ssh $SSH_OPTS -t root@"$SERVER_IP" "screen -S build bash /root/build.sh"
+        read -p "Press Enter to SSH into the server (or Ctrl+C to exit)..."
+        ${pkgs.openssh}/bin/ssh $SSH_OPTS -t root@"$SERVER_IP" "cd /build/axium && exec bash -l"
       '';
 
     in
     {
       packages.${system} = {
-        # Override the actual browser build (not the wrapper) to add our patches
+        # Build browser with custom GN flags and patches
         browser = let
-          patchedBrowser = pkgs.ungoogled-chromium.passthru.browser.overrideAttrs (old: {
+          # Convert our GN flags attrset to string format
+          mkGnFlags = attrs: pkgs.lib.concatStringsSep " " (
+            pkgs.lib.mapAttrsToList (k: v:
+              if builtins.isBool v then "${k}=${if v then "true" else "false"}"
+              else if builtins.isInt v then "${k}=${toString v}"
+              else "${k}=\"${toString v}\""
+            ) attrs
+          );
+
+          extraGnFlagsStr = mkGnFlags axiumGnFlags;
+
+          # Override the browser derivation to add our GN flags and patches
+          axiumBrowser = pkgs.ungoogled-chromium.passthru.browser.overrideAttrs (old: {
             pname = "axium-browser";
+
+            # Append our patches
             patches = old.patches ++ customPatches;
+
+            # Append our GN flags to the existing gnFlags string
+            gnFlags = old.gnFlags + " " + extraGnFlagsStr;
           });
-          patchedSandbox = patchedBrowser.passthru.sandbox;
-        in pkgs.runCommand "axium-${patchedBrowser.version}" {
-          inherit (patchedBrowser) version meta;
+
+          # Get the sandbox from the build
+          axiumSandbox = axiumBrowser.passthru.sandbox or pkgs.ungoogled-chromium.passthru.browser.passthru.sandbox;
+
+        in pkgs.runCommand "axium-${axiumBrowser.version}" {
+          inherit (axiumBrowser) version;
           pname = "axium";
+          meta = axiumBrowser.meta // {
+            mainProgram = "chromium";
+          };
           passthru = {
-            browser = patchedBrowser;
-            sandbox = patchedSandbox;
+            browser = axiumBrowser;
+            sandbox = axiumSandbox;
           };
         } ''
-          mkdir -p $out/bin
-          ln -s ${patchedBrowser}/bin/* $out/bin/
-          ln -s ${patchedBrowser}/lib $out/lib
-          ln -s ${patchedBrowser}/share $out/share
+          mkdir -p $out/bin $out/share
+
+          # Link binaries
+          for f in ${axiumBrowser}/bin/*; do
+            ln -s "$f" $out/bin/
+          done
+
+          # Add 'axium' alias
+          ln -s chromium $out/bin/axium
+
+          # Link libexec if it exists
+          if [ -d "${axiumBrowser}/libexec" ]; then
+            ln -s ${axiumBrowser}/libexec $out/libexec
+          fi
+
+          # Link share
+          if [ -d "${axiumBrowser}/share" ]; then
+            ln -s ${axiumBrowser}/share $out/share
+          fi
         '';
 
         cloud-build = cloudBuildScript;
@@ -181,7 +202,7 @@
           echo "  nix build .#browser    - Build locally"
           echo ""
           echo "Required env vars for cloud build:"
-          echo "  HCLOUD_TOKEN, CACHIX_AUTH_TOKEN, REPO_URL"
+          echo "  HCLOUD_TOKEN, CACHIX_AUTH_TOKEN"
         '';
       };
 
