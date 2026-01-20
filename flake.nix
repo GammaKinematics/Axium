@@ -158,18 +158,21 @@
         } ''
           mkdir -p $out/bin $out/share
 
-          # Link binaries
-          for f in ${axiumBrowser}/bin/*; do
-            ln -s "$f" $out/bin/
-          done
-
-          # Add 'axium' alias
-          ln -s chromium $out/bin/axium
-
-          # Link libexec if it exists
+          # Link libexec (unstripped - keep all files)
           if [ -d "${axiumBrowser}/libexec" ]; then
             ln -s ${axiumBrowser}/libexec $out/libexec
           fi
+
+          # Create chromium binary wrapper with sandbox support
+          cat > $out/bin/chromium <<EOF
+          #!/bin/sh
+          export CHROME_DEVEL_SANDBOX=/run/wrappers/bin/__chromium-suid-sandbox
+          exec $out/libexec/chromium/chromium "\$@"
+          EOF
+          chmod +x $out/bin/chromium
+
+          # Add 'axium' alias
+          ln -s chromium $out/bin/axium
 
           # Link share
           if [ -d "${axiumBrowser}/share" ]; then
