@@ -60,11 +60,6 @@
   # === Disable Spellcheck ===
   enable_spellcheck = false;
 
-  # === Disable AI/ML Bloat ===
-  build_with_tflite_lib = false;
-  build_with_model_execution = false;
-  build_with_internal_optimization_guide = false;
-
   # === Privacy (Network) ===
   safe_browsing_mode = 0;
   enable_reporting = false;
