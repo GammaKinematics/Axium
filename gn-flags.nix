@@ -37,7 +37,6 @@
   enable_compose = false;            # Google AI compose
   enable_widevine = false;           # DRM - use Spotify app instead
   enable_lens_desktop = false;       # Google Lens
-  enable_dice_support = false;       # Google account DICE
   enable_bound_session_credentials = false;
 
   # === Disable Bloat ===
