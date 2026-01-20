@@ -166,9 +166,22 @@
           # Add 'axium' alias
           ln -s chromium $out/bin/axium
 
-          # Link libexec if it exists
+          # Copy libexec so we can strip bloat
           if [ -d "${axiumBrowser}/libexec" ]; then
-            ln -s ${axiumBrowser}/libexec $out/libexec
+            cp -r ${axiumBrowser}/libexec $out/libexec
+            chmod -R u+w $out/libexec
+
+            # Remove inspector overlay (~77KB)
+            rm -rf $out/libexec/chromium/resources/inspector_overlay || true
+
+            # Strip locales - keep only fr (France) with gender variants
+            find $out/libexec/chromium/locales -type f ! \( -name 'fr.pak*' -o -name 'fr_*.pak*' \) -delete 2>/dev/null || true
+
+            # Remove Vulkan validation layer (~25MB)
+            rm -f $out/libexec/chromium/libVkLayer_khronos_validation.so || true
+
+            # Remove HiDPI resources (~1.2MB)
+            rm -f $out/libexec/chromium/chrome_200_percent.pak || true
           fi
 
           # Link share
