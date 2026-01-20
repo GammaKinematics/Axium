@@ -177,10 +177,10 @@
           fi
 
           # Create chromium binary wrapper with sandbox support
-          cat > $out/bin/chromium <<'EOF'
+          cat > $out/bin/chromium <<EOF
           #!/bin/sh
           export CHROME_DEVEL_SANDBOX=/run/wrappers/bin/chrome-sandbox
-          exec "$(dirname "$0")/../libexec/chromium/chromium" "$@"
+          exec $out/libexec/chromium/chromium "\$@"
           EOF
           chmod +x $out/bin/chromium
 
