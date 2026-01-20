@@ -40,7 +40,6 @@
   enable_bound_session_credentials = false;
 
   # === Disable Bloat ===
-  enable_nacl = false;               # Dead technology
   enable_remoting = false;           # Chrome Remote Desktop
   enable_vr = false;                 # VR/AR support
   enable_reading_list = false;
