@@ -42,7 +42,6 @@
   # === Disable Bloat ===
   enable_remoting = false;           # Chrome Remote Desktop
   enable_vr = false;                 # VR/AR support
-  enable_reading_list = false;
   enable_click_to_call = false;      # Phone number detection
   enable_background_mode = false;    # No system tray lurking
   enable_background_contents = false; # No invisible background pages
