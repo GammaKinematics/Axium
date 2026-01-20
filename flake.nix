@@ -118,32 +118,25 @@
     in
     {
       packages.${system} = {
-        # Build browser with custom GN flags and patches
+        # Build browser with custom GN flags and patches using mkDerivation
         browser = let
-          # Convert our GN flags attrset to string format
-          mkGnFlags = attrs: pkgs.lib.concatStringsSep " " (
-            pkgs.lib.mapAttrsToList (k: v:
-              if builtins.isBool v then "${k}=${if v then "true" else "false"}"
-              else if builtins.isInt v then "${k}=${toString v}"
-              else "${k}=\"${toString v}\""
-            ) attrs
-          );
+          # Use mkDerivation to properly pass GN flags as attrset (gets merged with base)
+          axiumBrowser = pkgs.ungoogled-chromium.passthru.mkDerivation (base: {
+            packageName = "axium-browser";
 
-          extraGnFlagsStr = mkGnFlags axiumGnFlags;
+            # Add our patches on top of ungoogled-chromium patches
+            patches = base.patches ++ customPatches;
 
-          # Override the browser derivation to add our GN flags and patches
-          axiumBrowser = pkgs.ungoogled-chromium.passthru.browser.overrideAttrs (old: {
-            pname = "axium-browser";
+            # Pass GN flags as attrset - mkDerivation merges with base flags
+            # Our flags override base flags due to attrset merge behavior
+            gnFlags = axiumGnFlags;
 
-            # Append our patches
-            patches = old.patches ++ customPatches;
-
-            # Append our GN flags to the existing gnFlags string
-            gnFlags = old.gnFlags + " " + extraGnFlagsStr;
+            # Keep same build targets
+            buildTargets = base.buildTargets or [ "chrome" "chrome_sandbox" ];
           });
 
-          # Get the sandbox from the build
-          axiumSandbox = axiumBrowser.passthru.sandbox or pkgs.ungoogled-chromium.passthru.browser.passthru.sandbox;
+          # Get the sandbox
+          axiumSandbox = axiumBrowser.passthru.sandbox;
 
         in pkgs.runCommand "axium-${axiumBrowser.version}" {
           inherit (axiumBrowser) version;
