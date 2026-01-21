@@ -80,9 +80,9 @@ set -euo pipefail
 source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
 cd /build/axium
 
-export HCLOUD_TOKEN="${HCLOUD_TOKEN}"
-export CACHIX_AUTH_TOKEN="${CACHIX_AUTH_TOKEN}"
-SERVER_ID="${SERVER_ID}"
+export HCLOUD_TOKEN="''${HCLOUD_TOKEN}"
+export CACHIX_AUTH_TOKEN="''${CACHIX_AUTH_TOKEN}"
+SERVER_ID="''${SERVER_ID}"
 
 echo ""
 echo "=========================================="
