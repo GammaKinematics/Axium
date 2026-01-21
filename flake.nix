@@ -27,12 +27,10 @@
         set -euo pipefail
 
         : "''${HCLOUD_TOKEN:?Set HCLOUD_TOKEN}"
-        : "''${CACHIX_AUTH_TOKEN:?Set CACHIX_AUTH_TOKEN}"
 
         REPO_URL="https://github.com/GammaKinematics/Axium.git"
         SERVER_TYPE="''${SERVER_TYPE:-ccx33}"
         SERVER_NAME="axium-builder-$(date +%s)"
-        CACHE_NAME="axium"
 
         log() { echo -e "\033[0;32m[+]\033[0m $1"; }
         warn() { echo -e "\033[0;33m[!]\033[0m $1"; }
@@ -64,57 +62,41 @@
         log "Installing Nix on remote server..."
         ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" bash <<'SETUP'
         set -euo pipefail
-        echo ">>> Installing Nix..."
         curl -L https://nixos.org/nix/install | sh -s -- --daemon --yes
         source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
         mkdir -p ~/.config/nix
         echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
-
-        echo ">>> Installing tools..."
-        nix profile install nixpkgs#cachix nixpkgs#git nixpkgs#hcloud
-
-        echo ">>> Setup complete"
+        nix profile install nixpkgs#cachix nixpkgs#git nixpkgs#tmux
         SETUP
 
         log "Cloning repository..."
         ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" "source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh && git clone $REPO_URL /build/axium"
 
-        # Save connection info locally
-        INFO_FILE="/tmp/axium-build-$$"
-        cat > "$INFO_FILE" <<EOF
-        SERVER_IP=$SERVER_IP
-        SERVER_ID=$SERVER_ID
-        CACHE_NAME=$CACHE_NAME
-        EOF
-
         log ""
         log "============================================"
-        log "  Server ready: $SERVER_IP"
+        log "  SERVER READY - STARTING BUILD"
         log "============================================"
         log ""
-        log "Saved to: $INFO_FILE"
+        log "Server: $SERVER_IP (ID: $SERVER_ID)"
         log ""
-        warn "MANUAL STEPS:"
+        log "Starting build in tmux session..."
         log ""
-        log "1. Connect to server:"
-        log "   ssh root@$SERVER_IP"
+        warn "TIPS:"
+        log "  - Ctrl+Z to pause build and inspect output"
+        log "  - fg to resume after pausing"
+        log "  - Ctrl+B D to detach tmux (build continues)"
+        log "  - Reattach: ssh -t root@$SERVER_IP tmux attach -t build"
         log ""
-        log "2. Start build:"
-        log "   cd /build/axium"
-        log "   nix build .#browser --cores 0 -j auto -L"
-        log ""
-        log "3. If build succeeds, push to cache:"
-        log "   cachix authtoken \$CACHIX_AUTH_TOKEN"
-        log "   cachix push $CACHE_NAME ./result"
-        log ""
-        log "4. Delete server when done:"
-        log "   hcloud server delete $SERVER_ID"
+        warn "WHEN BUILD COMPLETES:"
+        log "  cachix authtoken <TOKEN>"
+        log "  cachix push axium ./result"
+        log "  hcloud server delete $SERVER_ID"
         log ""
         log "============================================"
         log ""
 
-        read -p "Press Enter to SSH into the server (or Ctrl+C to exit)..."
-        ${pkgs.openssh}/bin/ssh $SSH_OPTS -t root@"$SERVER_IP" "cd /build/axium && exec bash -l"
+        read -p "Press Enter to SSH and start the build (or Ctrl+C to exit)..."
+        ${pkgs.openssh}/bin/ssh $SSH_OPTS -t root@"$SERVER_IP" "cd /build/axium && tmux new -s build 'source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh && nix build .#browser --cores 0 -j auto -L 2>&1 | tee build.log; exec bash'"
       '';
 
       # Runtime libraries needed by Chromium (mirrors nixpkgs)
