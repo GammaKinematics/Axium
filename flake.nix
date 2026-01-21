@@ -62,19 +62,19 @@
 
         log "Installing Nix on remote server..."
         ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" bash <<'SETUP'
-        set -euo pipefail
-        curl -L https://nixos.org/nix/install | sh -s -- --daemon --yes
-        source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
-        mkdir -p ~/.config/nix
-        echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
-        nix profile install nixpkgs#cachix nixpkgs#git nixpkgs#tmux nixpkgs#hcloud
-        SETUP
+set -euo pipefail
+curl -L https://nixos.org/nix/install | sh -s -- --daemon --yes
+source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+mkdir -p ~/.config/nix
+echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
+nix profile install nixpkgs#cachix nixpkgs#git nixpkgs#tmux nixpkgs#hcloud
+SETUP
 
         log "Cloning repository..."
         ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" "source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh && git clone $REPO_URL /build/axium"
 
         # Create the build script on the remote server
-        ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" cat > /build/run-build.sh <<BUILDSCRIPT
+        ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" "cat > /build/run-build.sh" <<BUILDSCRIPT
 #!/usr/bin/env bash
 set -euo pipefail
 source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
