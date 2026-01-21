@@ -22,11 +22,12 @@
         ./patches/disable-default-browser-prompt.patch
       ];
 
-      # Cloud build script - interactive mode
+      # Cloud build script - autonomous with tmux for monitoring
       cloudBuildScript = pkgs.writeShellScriptBin "axium-cloud-build" ''
         set -euo pipefail
 
         : "''${HCLOUD_TOKEN:?Set HCLOUD_TOKEN}"
+        : "''${CACHIX_AUTH_TOKEN:?Set CACHIX_AUTH_TOKEN}"
 
         REPO_URL="https://github.com/GammaKinematics/Axium.git"
         SERVER_TYPE="''${SERVER_TYPE:-ccx33}"
@@ -66,11 +67,58 @@
         source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
         mkdir -p ~/.config/nix
         echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
-        nix profile install nixpkgs#cachix nixpkgs#git nixpkgs#tmux
+        nix profile install nixpkgs#cachix nixpkgs#git nixpkgs#tmux nixpkgs#hcloud
         SETUP
 
         log "Cloning repository..."
         ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" "source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh && git clone $REPO_URL /build/axium"
+
+        # Create the build script on the remote server
+        ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" cat > /build/run-build.sh <<BUILDSCRIPT
+#!/usr/bin/env bash
+set -euo pipefail
+source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+cd /build/axium
+
+export HCLOUD_TOKEN="${HCLOUD_TOKEN}"
+export CACHIX_AUTH_TOKEN="${CACHIX_AUTH_TOKEN}"
+SERVER_ID="${SERVER_ID}"
+
+echo ""
+echo "=========================================="
+echo "  AXIUM BUILD - AUTONOMOUS MODE"
+echo "=========================================="
+echo ""
+echo "Build started at \$(date)"
+echo "Server will self-destruct when done."
+echo ""
+
+if nix build .#browser --cores 0 -j auto -L 2>&1 | tee build.log; then
+    echo ""
+    echo "=========================================="
+    echo "  BUILD SUCCEEDED"
+    echo "=========================================="
+    echo ""
+    echo "Pushing to cachix..."
+    cachix authtoken "\$CACHIX_AUTH_TOKEN"
+    if cachix push axium ./result; then
+        echo "Cachix push complete!"
+    else
+        echo "Cachix push failed!"
+    fi
+else
+    echo ""
+    echo "=========================================="
+    echo "  BUILD FAILED"
+    echo "=========================================="
+fi
+
+echo ""
+echo "Deleting server in 30 seconds... (Ctrl+C to cancel)"
+sleep 30
+hcloud server delete "\$SERVER_ID" --yes
+BUILDSCRIPT
+        ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" chmod +x /build/run-build.sh
 
         log ""
         log "============================================"
@@ -79,23 +127,20 @@
         log ""
         log "Server: $SERVER_IP (ID: $SERVER_ID)"
         log ""
-        log "Starting build in tmux session..."
+        log "Build will run in tmux. When complete:"
+        log "  - On success: pushes to cachix"
+        log "  - Then: server self-destructs (30s delay)"
         log ""
         warn "TIPS:"
         log "  - Ctrl+B [ to scroll/pause output, q to resume"
-        log "  - Ctrl+B D to detach (build continues in background)"
+        log "  - Ctrl+B D to detach (build continues)"
         log "  - To resume: ssh -t root@$SERVER_IP tmux attach -t build"
-        log ""
-        warn "WHEN BUILD COMPLETES:"
-        log "  cachix authtoken <TOKEN>"
-        log "  cachix push axium ./result"
-        log "  hcloud server delete $SERVER_ID"
         log ""
         log "============================================"
         log ""
 
         read -p "Press Enter to SSH and start the build (or Ctrl+C to exit)..."
-        ${pkgs.openssh}/bin/ssh $SSH_OPTS -t root@"$SERVER_IP" "cd /build/axium && tmux new -s build 'source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh && nix build .#browser --cores 0 -j auto -L 2>&1 | tee build.log; exec bash'"
+        ${pkgs.openssh}/bin/ssh $SSH_OPTS -t root@"$SERVER_IP" "tmux new -s build /build/run-build.sh"
       '';
 
       # Runtime libraries needed by Chromium (mirrors nixpkgs)
