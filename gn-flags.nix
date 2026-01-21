@@ -41,7 +41,6 @@
   enable_bound_session_credentials = false;
 
   # === Disable Bloat ===
-  enable_nacl = false;               # Dead technology
   enable_remoting = false;           # Chrome Remote Desktop
   enable_vr = false;                 # VR/AR support
   enable_reading_list = false;
@@ -75,4 +74,18 @@
   # === Media (keep hardware accel) ===
   use_vaapi = true;                  # Hardware video decode
   proprietary_codecs = true;         # H.264 etc
+
+  # === Aggressive Stripping ===
+  enable_speech_service = false;     # Breaks: voice search, dictation
+  enable_on_device_translation = false;  # Won't work anyway (needs component updater)
+  enable_screen_ai_service = false;  # OCR features
+  enable_supervised_users = false;   # Family Link
+  enable_media_remoting = false;     # Cast media
+  enable_rlz = false;                # Tracking
+  enable_offline_pages = false;      # Android-focused anyway
+  include_transport_security_state_preload_list = false;  # ~500KB HSTS list
+
+  # === Disable Enterprise Bloat ===
+  enterprise_cloud_content_analysis = false;
+  enterprise_local_content_analysis = false;
 }

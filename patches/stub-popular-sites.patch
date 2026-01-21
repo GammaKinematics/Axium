@@ -1,0 +1,16 @@
+diff --git a/chrome/browser/ntp_tiles/chrome_popular_sites_factory.cc b/chrome/browser/ntp_tiles/chrome_popular_sites_factory.cc
+index 103fc731d2..c9b4539282 100644
+--- a/chrome/browser/ntp_tiles/chrome_popular_sites_factory.cc
++++ b/chrome/browser/ntp_tiles/chrome_popular_sites_factory.cc
+@@ -15,9 +15,6 @@
+ 
+ std::unique_ptr<ntp_tiles::PopularSites>
+ ChromePopularSitesFactory::NewForProfile(Profile* profile) {
+-  return std::make_unique<ntp_tiles::PopularSitesImpl>(
+-      profile->GetPrefs(), TemplateURLServiceFactory::GetForProfile(profile),
+-      g_browser_process->variations_service(),
+-      profile->GetDefaultStoragePartition()
+-          ->GetURLLoaderFactoryForBrowserProcess());
++  // Axium: stubbed - no popular sites
++  return nullptr;
+ }

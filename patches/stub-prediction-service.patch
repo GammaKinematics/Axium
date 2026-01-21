@@ -1,0 +1,30 @@
+diff --git a/chrome/browser/permissions/prediction_service/prediction_service_factory.cc b/chrome/browser/permissions/prediction_service/prediction_service_factory.cc
+index 66c9f42791..0e0527f036 100644
+--- a/chrome/browser/permissions/prediction_service/prediction_service_factory.cc
++++ b/chrome/browser/permissions/prediction_service/prediction_service_factory.cc
+@@ -18,11 +18,8 @@ using ::permissions::PredictionService;
+ // static
+ permissions::PredictionService* PredictionServiceFactory::GetForProfile(
+     Profile* profile) {
+-  if (GetInstance()->prediction_service_for_testing_.has_value()) {
+-    return GetInstance()->prediction_service_for_testing_.value();
+-  }
+-  return static_cast<PredictionService*>(
+-      GetInstance()->GetServiceForBrowserContext(profile, true));
++  // Axium: stubbed - no permission prediction
++  return nullptr;
+ }
+ 
+ // static
+@@ -55,9 +52,6 @@ PredictionServiceFactory::~PredictionServiceFactory() = default;
+ std::unique_ptr<KeyedService>
+ PredictionServiceFactory::BuildServiceInstanceForBrowserContext(
+     content::BrowserContext* context) const {
+-  auto url_loader_factory =
+-      std::make_unique<network::CrossThreadPendingSharedURLLoaderFactory>(
+-          g_browser_process->shared_url_loader_factory());
+-  return std::make_unique<permissions::PredictionService>(
+-      network::SharedURLLoaderFactory::Create(std::move(url_loader_factory)));
++  // Axium: stubbed
++  return nullptr;
+ }

@@ -1,0 +1,22 @@
+diff --git a/media/midi/midi_service.cc b/media/midi/midi_service.cc
+index 502ec9754f..6f9910054b 100644
+--- a/media/midi/midi_service.cc
++++ b/media/midi/midi_service.cc
+@@ -51,14 +51,10 @@ void MidiService::Shutdown() {
+ }
+ 
+ void MidiService::StartSession(MidiManagerClient* client) {
+-  base::AutoLock lock(lock_);
+-  if (!manager_) {
+-    manager_ = manager_factory_->Create(this);
+-    DCHECK(!manager_destructor_runner_);
+-    manager_destructor_runner_ =
+-        base::SingleThreadTaskRunner::GetCurrentDefault();
++  // Axium: stubbed - no MIDI support
++  if (client) {
++    client->CompleteStartSession(mojom::Result::NOT_SUPPORTED);
+   }
+-  manager_->StartSession(client);
+ }
+ 
+ bool MidiService::EndSession(MidiManagerClient* client) {

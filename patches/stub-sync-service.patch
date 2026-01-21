@@ -1,0 +1,19 @@
+diff --git a/chrome/browser/sync/sync_service_factory.cc b/chrome/browser/sync/sync_service_factory.cc
+index dcefb4f3d8..4b32b440db 100644
+--- a/chrome/browser/sync/sync_service_factory.cc
++++ b/chrome/browser/sync/sync_service_factory.cc
+@@ -494,12 +494,8 @@ SyncServiceFactory* SyncServiceFactory::GetInstance() {
+ 
+ // static
+ syncer::SyncService* SyncServiceFactory::GetForProfile(Profile* profile) {
+-  if (!syncer::IsSyncAllowedByFlag()) {
+-    return nullptr;
+-  }
+-
+-  return static_cast<syncer::SyncService*>(
+-      GetInstance()->GetServiceForBrowserContext(profile, /*create=*/true));
++  // Axium: stubbed - no sync service
++  return nullptr;
+ }
+ 
+ // static

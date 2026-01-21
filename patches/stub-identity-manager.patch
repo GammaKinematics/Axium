@@ -1,0 +1,25 @@
+diff --git a/chrome/browser/signin/identity_manager_factory.cc b/chrome/browser/signin/identity_manager_factory.cc
+index a08d23a239..3278932424 100644
+--- a/chrome/browser/signin/identity_manager_factory.cc
++++ b/chrome/browser/signin/identity_manager_factory.cc
+@@ -88,16 +88,15 @@ IdentityManagerFactory::~IdentityManagerFactory() {
+ // static
+ signin::IdentityManager* IdentityManagerFactory::GetForProfile(
+     Profile* profile) {
+-  return static_cast<signin::IdentityManager*>(
+-      GetInstance()->GetServiceForBrowserContext(profile, true));
++  // Axium: stubbed - no identity manager
++  return nullptr;
+ }
+ 
+ // static
+ signin::IdentityManager* IdentityManagerFactory::GetForProfileIfExists(
+     const Profile* profile) {
+-  return static_cast<signin::IdentityManager*>(
+-      GetInstance()->GetServiceForBrowserContext(const_cast<Profile*>(profile),
+-                                                 false));
++  // Axium: stubbed
++  return nullptr;
+ }
+ 
+ // static

@@ -1,0 +1,15 @@
+diff --git a/chrome/browser/download/background_download_service_factory.cc b/chrome/browser/download/background_download_service_factory.cc
+index bde438ed43..30b502588e 100644
+--- a/chrome/browser/download/background_download_service_factory.cc
++++ b/chrome/browser/download/background_download_service_factory.cc
+@@ -146,8 +146,8 @@ BackgroundDownloadServiceFactory::GetInstance() {
+ // static
+ download::BackgroundDownloadService*
+ BackgroundDownloadServiceFactory::GetForKey(SimpleFactoryKey* key) {
+-  return static_cast<download::BackgroundDownloadService*>(
+-      GetInstance()->GetServiceForKey(key, true));
++  // Axium: stubbed - no background download
++  return nullptr;
+ }
+ 
+ BackgroundDownloadServiceFactory::BackgroundDownloadServiceFactory()

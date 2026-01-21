@@ -1,0 +1,37 @@
+diff --git a/chrome/browser/devtools/chrome_devtools_manager_delegate.cc b/chrome/browser/devtools/chrome_devtools_manager_delegate.cc
+index 556a9c5a4c..c33b675a0c 100644
+--- a/chrome/browser/devtools/chrome_devtools_manager_delegate.cc
++++ b/chrome/browser/devtools/chrome_devtools_manager_delegate.cc
+@@ -353,10 +353,8 @@ std::string ChromeDevToolsManagerDelegate::GetTargetTitle(
+ 
+ bool ChromeDevToolsManagerDelegate::AllowInspectingRenderFrameHost(
+     content::RenderFrameHost* rfh) {
+-  Profile* profile =
+-      Profile::FromBrowserContext(rfh->GetProcess()->GetBrowserContext());
+-  return IsInspectionAllowed(profile,
+-                             content::WebContents::FromRenderFrameHost(rfh));
++  // Axium: DevTools disabled
++  return false;
+ }
+ 
+ void ChromeDevToolsManagerDelegate::ClientAttached(
+@@ -374,17 +372,8 @@ scoped_refptr<DevToolsAgentHost> ChromeDevToolsManagerDelegate::CreateNewTarget(
+     const GURL& url,
+     DevToolsManagerDelegate::TargetType target_type,
+     bool new_window) {
+-  NavigateParams params(ProfileManager::GetLastUsedProfile(), url,
+-                        ui::PAGE_TRANSITION_AUTO_TOPLEVEL);
+-  params.disposition = WindowOpenDisposition::NEW_FOREGROUND_TAB;
+-  Navigate(&params);
+-  if (!params.navigated_or_inserted_contents)
+-    return nullptr;
+-  return target_type == DevToolsManagerDelegate::kTab
+-             ? DevToolsAgentHost::GetOrCreateForTab(
+-                   params.navigated_or_inserted_contents)
+-             : DevToolsAgentHost::GetOrCreateFor(
+-                   params.navigated_or_inserted_contents);
++  // Axium: DevTools disabled
++  return nullptr;
+ }
+ 
+ std::vector<content::BrowserContext*>

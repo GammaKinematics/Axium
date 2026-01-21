@@ -1,0 +1,19 @@
+diff --git a/device/bluetooth/bluetooth_adapter_factory.cc b/device/bluetooth/bluetooth_adapter_factory.cc
+index fb54746a92..a47f83a065 100644
+--- a/device/bluetooth/bluetooth_adapter_factory.cc
++++ b/device/bluetooth/bluetooth_adapter_factory.cc
+@@ -46,12 +46,8 @@ static constexpr bool kBluetoothSupportedByPlatform =
+ 
+ // static
+ bool BluetoothAdapterFactory::IsBluetoothSupported() {
+-  // SetAdapterForTesting() may be used to provide a test or mock adapter
+-  // instance even on platforms that would otherwise not support it.
+-  if (Get()->adapter_) {
+-    return true;
+-  }
+-  return kBluetoothSupportedByPlatform;
++  // Axium: stubbed - no Bluetooth support
++  return false;
+ }
+ 
+ bool BluetoothAdapterFactory::IsLowEnergySupported() {

@@ -1,0 +1,15 @@
+diff --git a/chrome/browser/metrics/variations/google_groups_manager_factory.cc b/chrome/browser/metrics/variations/google_groups_manager_factory.cc
+index 76f5c93d25..ab36daca45 100644
+--- a/chrome/browser/metrics/variations/google_groups_manager_factory.cc
++++ b/chrome/browser/metrics/variations/google_groups_manager_factory.cc
+@@ -21,8 +21,8 @@ GoogleGroupsManagerFactory::GetInstance() {
+ GoogleGroupsManager*
+ GoogleGroupsManagerFactory::GetForBrowserContext(
+     content::BrowserContext* context) {
+-  return static_cast<GoogleGroupsManager*>(
+-      GetInstance()->GetServiceForBrowserContext(context, /*create=*/true));
++  // Axium: stubbed - no Google Groups
++  return nullptr;
+ }
+ 
+ GoogleGroupsManagerFactory::GoogleGroupsManagerFactory()

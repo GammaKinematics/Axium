@@ -18,6 +18,22 @@
       axiumGnFlags = import ./gn-flags.nix;
       customPatches = [
         ./patches/enable-vertical-tabs.patch
+        # Service factory stubs
+        ./patches/stub-prediction-service.patch
+        ./patches/stub-contextual-cueing.patch
+        ./patches/stub-google-groups.patch
+        ./patches/stub-popular-sites.patch
+        ./patches/stub-sync-service.patch
+        ./patches/stub-identity-manager.patch
+        ./patches/stub-signin-manager.patch
+        ./patches/stub-background-download.patch
+        ./patches/stub-extension-telemetry.patch
+        ./patches/stub-read-anything.patch
+        # Hardware API stubs
+        ./patches/stub-bluetooth.patch
+        ./patches/stub-midi.patch
+        # DevTools stub
+        ./patches/stub-devtools.patch
       ];
 
       # Cloud build script - interactive mode
@@ -166,9 +182,24 @@
           # Add 'axium' alias
           ln -s chromium $out/bin/axium
 
-          # Link libexec if it exists
+          # Copy libexec so we can strip bloat
           if [ -d "${axiumBrowser}/libexec" ]; then
-            ln -s ${axiumBrowser}/libexec $out/libexec
+            cp -r ${axiumBrowser}/libexec $out/libexec
+            chmod -R u+w $out/libexec
+
+            # Remove inspector overlay (element highlighting) - 77KB
+            # NOTE: DevTools frontend is bundled in resources.pak (13MB), can't strip post-build
+            rm -rf $out/libexec/chromium/resources/inspector_overlay || true
+
+            # Strip locales - keep only fr.pak
+            find $out/libexec/chromium/locales -type f ! -name 'fr.pak' -delete 2>/dev/null || true
+            find $out/libexec/chromium/locales -type f -name '*.info' -delete 2>/dev/null || true
+
+            # Remove Vulkan validation layer - debug only (~25MB)
+            rm -f $out/libexec/chromium/libVkLayer_khronos_validation.so || true
+
+            # Remove HiDPI resources if not needed (~1.2MB)
+            rm -f $out/libexec/chromium/chrome_200_percent.pak || true
           fi
 
           # Link share

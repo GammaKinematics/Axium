@@ -1,0 +1,36 @@
+diff --git a/chrome/browser/contextual_cueing/contextual_cueing_service_factory.cc b/chrome/browser/contextual_cueing/contextual_cueing_service_factory.cc
+index b0ca344ddd..1a05926a00 100644
+--- a/chrome/browser/contextual_cueing/contextual_cueing_service_factory.cc
++++ b/chrome/browser/contextual_cueing/contextual_cueing_service_factory.cc
+@@ -20,9 +20,8 @@ namespace contextual_cueing {
+ // static
+ ContextualCueingService* ContextualCueingServiceFactory::GetForProfile(
+     Profile* profile) {
+-  return static_cast<ContextualCueingService*>(
+-      GetInstance()->GetServiceForBrowserContext(/*context=*/profile,
+-                                                 /*create=*/true));
++  // Axium: stubbed - no contextual cueing
++  return nullptr;
+ }
+ 
+ // static
+@@ -49,17 +48,8 @@ ContextualCueingServiceFactory::~ContextualCueingServiceFactory() = default;
+ std::unique_ptr<KeyedService>
+ ContextualCueingServiceFactory::BuildServiceInstanceForBrowserContext(
+     content::BrowserContext* context) const {
+-  if (!contextual_cueing::IsContextualCueingEnabled() &&
+-      !contextual_cueing::IsZeroStateSuggestionsEnabled()) {
+-    return nullptr;
+-  }
+-  Profile* profile = Profile::FromBrowserContext(context);
+-  return std::make_unique<ContextualCueingService>(
+-      page_content_annotations::PageContentExtractionServiceFactory::
+-          GetForProfile(profile),
+-      OptimizationGuideKeyedServiceFactory::GetForProfile(profile),
+-      predictors::LoadingPredictorFactory::GetForProfile(profile),
+-      profile->GetPrefs(), TemplateURLServiceFactory::GetForProfile(profile));
++  // Axium: stubbed
++  return nullptr;
+ }
+ 
+ bool ContextualCueingServiceFactory::ServiceIsCreatedWithBrowserContext()

@@ -1,0 +1,16 @@
+diff --git a/chrome/browser/signin/signin_manager_factory.cc b/chrome/browser/signin/signin_manager_factory.cc
+index ef392dfd7d..f0ac2dddea 100644
+--- a/chrome/browser/signin/signin_manager_factory.cc
++++ b/chrome/browser/signin/signin_manager_factory.cc
+@@ -19,9 +19,8 @@ SigninManagerFactory* SigninManagerFactory::GetInstance() {
+ 
+ // static
+ SigninManager* SigninManagerFactory::GetForProfile(Profile* profile) {
+-  DCHECK(profile);
+-  return static_cast<SigninManager*>(
+-      GetInstance()->GetServiceForBrowserContext(profile, true));
++  // Axium: stubbed - no signin manager
++  return nullptr;
+ }
+ 
+ SigninManagerFactory::SigninManagerFactory()

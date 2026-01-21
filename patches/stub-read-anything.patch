@@ -1,0 +1,15 @@
+diff --git a/chrome/browser/ui/read_anything/read_anything_service_factory.cc b/chrome/browser/ui/read_anything/read_anything_service_factory.cc
+index 75d3226fe2..1435c935f1 100644
+--- a/chrome/browser/ui/read_anything/read_anything_service_factory.cc
++++ b/chrome/browser/ui/read_anything/read_anything_service_factory.cc
+@@ -12,8 +12,8 @@
+ // static
+ ReadAnythingService* ReadAnythingServiceFactory::GetForBrowserContext(
+     content::BrowserContext* context) {
+-  return static_cast<ReadAnythingService*>(
+-      GetInstance()->GetServiceForBrowserContext(context, true));
++  // Axium: stubbed - no read anything
++  return nullptr;
+ }
+ 
+ // static

@@ -1,0 +1,15 @@
+diff --git a/chrome/browser/safe_browsing/extension_telemetry/extension_telemetry_service_factory.cc b/chrome/browser/safe_browsing/extension_telemetry/extension_telemetry_service_factory.cc
+index 8aac833777..63f1e067aa 100644
+--- a/chrome/browser/safe_browsing/extension_telemetry/extension_telemetry_service_factory.cc
++++ b/chrome/browser/safe_browsing/extension_telemetry/extension_telemetry_service_factory.cc
+@@ -30,8 +30,8 @@ namespace safe_browsing {
+ // static
+ ExtensionTelemetryService* ExtensionTelemetryServiceFactory::GetForProfile(
+     Profile* profile) {
+-  return static_cast<ExtensionTelemetryService*>(
+-      GetInstance()->GetServiceForBrowserContext(profile, /* create= */ true));
++  // Axium: stubbed - no extension telemetry
++  return nullptr;
+ }
+ 
+ // static
