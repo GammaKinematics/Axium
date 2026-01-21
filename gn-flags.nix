@@ -10,8 +10,9 @@
   disable_fieldtrial_testing_config = true;  # No A/B test overhead
 
   # SIMD - adjust based on your CPU
-  use_sse42 = true;
-  use_avx = true;
+  use_sse41 = true;   # Penryn 2007+
+  use_sse42 = true;   # Nehalem 2009+
+  use_avx = true;     # Sandy Bridge 2011+
   use_avx2 = true;    # Haswell 2013+
 
   # === V8 JavaScript Engine ===
@@ -30,14 +31,13 @@
   symbol_level = 0;
   blink_symbol_level = 0;
   v8_symbol_level = 0;
-  enable_stripping = true;
 
   # === Disable Google Services ===
   enable_hangout_services_extension = false;
   enable_compose = false;            # Google AI compose
   enable_widevine = false;           # DRM - use Spotify app instead
   enable_lens_desktop = false;       # Google Lens
-  enable_bound_session_credentials = false;
+  enable_bound_session_credentials = false;  # Device bound session credentials
 
   # === Disable Bloat ===
   enable_remoting = false;           # Chrome Remote Desktop
@@ -62,9 +62,6 @@
   enable_pdf = false;                # Use external PDF viewer
   enable_printing = false;
   enable_print_preview = false;
-
-  # === Disable Spellcheck ===
-  enable_spellcheck = false;
 
   # === Privacy (Network) ===
   safe_browsing_mode = 0;

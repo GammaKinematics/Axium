@@ -1,0 +1,236 @@
+diff --git a/build/config/compiler_opt.gni b/build/config/compiler_opt.gni
+new file mode 100644
+index 0000000000..f9e8a2ee5f
+--- /dev/null
++++ b/build/config/compiler_opt.gni
+@@ -0,0 +1,75 @@
++# Copyright 2024 Axium Project
++# Use of this source code is governed by a BSD-style license that can be
++# found in the LICENSE file.
++
++# Compiler optimization flags for Linux x86_64
++# Based on Thorium browser's approach
++# See https://gcc.gnu.org/onlinedocs/gcc/x86-Options.html
++
++import("//build/config/compiler/compiler.gni")
++
++declare_args() {
++  # SIMD compiler optimization flags for x86_64
++  # Flags are cumulative - for AVX2 you want all lower levels enabled too.
++
++  # SSE4.1
++  # Present since Penryn (2007 Core 2 Duo) and AMD Bulldozer/Jaguar.
++  # Includes SSSE3.
++  use_sse41 = false
++
++  # SSE4.2 (x86-64-v2)
++  # Present since Nehalem (2009 1st Gen Core i series)
++  # and AMD Bulldozer/Jaguar.
++  use_sse42 = false
++
++  # AVX
++  # Present since Sandy Bridge (2011 2nd Gen Core i series)
++  # and AMD Bulldozer.
++  # Includes AES-NI and PCLMUL for cryptography acceleration.
++  use_avx = false
++
++  # AVX2 (x86-64-v3)
++  # Present since Haswell (2013 4th Gen Core i series)
++  # and AMD Excavator/Zen.
++  use_avx2 = false
++}
++
++declare_args() {
++  # FMA (Fused Multiply-Add)
++  # Automatically enabled with AVX2.
++  # Present since Haswell and AMD Piledriver.
++  use_fma = use_avx2
++}
++
++# Validation: SIMD flags only work on x86/x64
++if (use_sse41 || use_sse42 || use_avx || use_avx2) {
++  assert(current_cpu == "x64" || current_cpu == "x86",
++         "SIMD optimizations require x86/x64 target")
++}
++
++# Validation: AVX and above require 64-bit
++if (use_avx || use_avx2 || use_fma) {
++  assert(current_cpu == "x64",
++         "AVX, AVX2, and FMA require x64 (64-bit) target")
++}
++
++# Warnings for unusual configurations
++if (use_avx2 && !use_avx) {
++  print("WARNING: use_avx2=true but use_avx=false. Consider enabling use_avx.")
++}
++
++if (use_avx && !use_sse42) {
++  print("WARNING: use_avx=true but use_sse42=false. Consider enabling use_sse42.")
++}
++
++if (use_sse42 && !use_sse41) {
++  print("WARNING: use_sse42=true but use_sse41=false. Consider enabling use_sse41.")
++}
++
++if (use_fma && !use_avx) {
++  print("WARNING: use_fma=true but use_avx=false. FMA requires AVX support.")
++}
++
++if (use_avx2 && !use_fma) {
++  print("WARNING: use_avx2=true but use_fma=false. AVX2 CPUs support FMA.")
++}
+diff --git a/build/config/compiler/BUILD.gn b/build/config/compiler/BUILD.gn
+index c09c9677bd..5764094b8e 100644
+--- a/build/config/compiler/BUILD.gn
++++ b/build/config/compiler/BUILD.gn
+@@ -11,6 +11,7 @@ import("//build/config/chrome_build.gni")
+ import("//build/config/chromeos/args.gni")
+ import("//build/config/clang/clang.gni")
+ import("//build/config/compiler/compiler.gni")
++import("//build/config/compiler_opt.gni")
+ import("//build/config/coverage/coverage.gni")
+ import("//build/config/cronet/config.gni")
+ import("//build/config/dcheck_always_on.gni")
+@@ -1152,6 +1153,25 @@ config("compiler") {
+     "-Zexternal-clangrt",
+   ]
+ 
++  # Axium: Rust SIMD target features (x86_64 only)
++  if (current_cpu == "x64") {
++    if (use_sse41 && !use_sse42) {
++      rustflags += [ "-Ctarget-feature=+sse3,+ssse3,+sse4.1" ]
++    }
++    if (use_sse42 && !use_avx) {
++      rustflags += [ "-Ctarget-feature=+sse3,+ssse3,+sse4.1,+sse4.2" ]
++    }
++    if (use_avx && !use_avx2) {
++      rustflags += [ "-Ctarget-feature=+sse3,+ssse3,+sse4.1,+sse4.2,+pclmulqdq,+aes,+avx" ]
++    }
++    if (use_avx2) {
++      rustflags += [
++        "-Ctarget-feature=+sse3,+ssse3,+sse4.1,+sse4.2,+pclmulqdq,+aes,+avx,+avx2,+fma,+f16c,+lzcnt,+bmi2",
++        "-Cllvm-args=-fp-contract=fast",
++      ]
++    }
++  }
++
+   if (!is_win || force_rustc_color_output) {
+     # Colorize error output. The analogous flag is passed for clang. This must
+     # be platform-gated since rustc will unconditionally output ANSI escape
+@@ -2722,13 +2742,104 @@ if (is_win) {
+       common_optimize_on_cflags += [ "-fno-unique-section-names" ]
+     }
+ 
++    # Axium: LLVM optimization flags for better code generation
++    if (is_official_build && is_clang) {
++      common_optimize_on_cflags += [
++        "-mllvm", "-aggressive-ext-opt",
++        "-mllvm", "-enable-gvn-hoist",
++      ]
++    }
++
++    # Axium: SIMD instruction set flags (x86_64 only)
++    if (current_cpu == "x64") {
++      if (use_sse41) {
++        common_optimize_on_cflags += [
++          "-mssse3",
++          "-msse4.1",
++        ]
++      }
++      if (use_sse42) {
++        common_optimize_on_cflags += [
++          "-msse4",
++          "-msse4.2",
++        ]
++      }
++      if (use_avx) {
++        common_optimize_on_cflags += [
++          "-mpclmul",
++          "-maes",
++          "-mavx",
++        ]
++      }
++      if (use_fma) {
++        common_optimize_on_cflags += [
++          "-mfma",
++          "-ffp-contract=fast",
++        ]
++      }
++      if (use_avx2) {
++        common_optimize_on_cflags += [
++          "-mavx2",
++          "-mf16c",
++          "-mlzcnt",
++          "-mbmi",
++          "-mbmi2",
++          "-mtune=haswell",
++        ]
++      }
++    }
++
+     if (is_official_build) {
+       common_optimize_on_ldflags += [
+         # Specifically tell the linker to perform optimizations.
+         # See http://lwn.net/Articles/192624/.
+-        # -O2 enables string tail merge optimization in lld.
+-        "-Wl,-O2",
++        # Axium: -O3 for additional linker optimizations
++        "-Wl,-O3",
+       ]
++
++      # Axium: LLVM linker optimization flags
++      if (is_clang) {
++        common_optimize_on_ldflags += [
++          "-Wl,-mllvm,-aggressive-ext-opt",
++          "-Wl,-mllvm,-enable-gvn-hoist",
++        ]
++      }
++
++      # Axium: SIMD flags for linker (x86_64 only)
++      if (current_cpu == "x64") {
++        if (use_sse41) {
++          common_optimize_on_ldflags += [
++            "-mssse3",
++            "-msse4.1",
++          ]
++        }
++        if (use_sse42) {
++          common_optimize_on_ldflags += [ "-msse4.2" ]
++        }
++        if (use_avx) {
++          common_optimize_on_ldflags += [
++            "-mpclmul",
++            "-maes",
++            "-mavx",
++          ]
++        }
++        if (use_fma) {
++          common_optimize_on_ldflags += [
++            "-mfma",
++            "-Wl,-mllvm,-fp-contract=fast",
++          ]
++        }
++        if (use_avx2) {
++          common_optimize_on_ldflags += [
++            "-mavx2",
++            "-mf16c",
++            "-mlzcnt",
++            "-mbmi",
++            "-mbmi2",
++            "-Wl,-mllvm,-march=haswell",
++          ]
++        }
++      }
+     }
+ 
+     common_optimize_on_ldflags += [ "-Wl,--gc-sections" ]
+@@ -2822,7 +2933,8 @@ config("optimize") {
+     # vectorization while otherwise optimizing for size.
+     rustflags = [ "-Copt-level=s" ]
+   } else {
+-    cflags = [ "-O2" ] + common_optimize_on_cflags
++    # Axium: Use -O3 for maximum optimization
++    cflags = [ "-O3" ] + common_optimize_on_cflags
+ 
+     # The `-O3` for clang turns on extra optimizations compared to the standard
+     # `-O2`. But for rust, `-Copt-level=3` is the default and is thus reliable

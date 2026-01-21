@@ -18,6 +18,7 @@
       axiumGnFlags = import ./gn-flags.nix;
       customPatches = [
         ./patches/enable-vertical-tabs.patch
+        ./patches/compiler-optimizations.patch
       ];
 
       # Cloud build script - interactive mode
@@ -115,6 +116,26 @@
         ${pkgs.openssh}/bin/ssh $SSH_OPTS -t root@"$SERVER_IP" "cd /build/axium && exec bash -l"
       '';
 
+      # Runtime libraries needed by Chromium (mirrors nixpkgs)
+      runtimeLibs = with pkgs; [
+        libva        # Hardware video acceleration
+        pipewire     # Audio
+        wayland      # Wayland support
+        gtk3         # GTK3 integration
+        gtk4         # GTK4 integration
+        libkrb5      # Kerberos authentication
+      ];
+
+      # XDG data directories for desktop integration
+      xdgDataDirs = with pkgs; [
+        cups
+        gtk3
+        gtk4
+        adwaita-icon-theme
+        hicolor-icon-theme
+        gsettings-desktop-schemas
+      ];
+
     in
     {
       packages.${system} = {
@@ -123,6 +144,10 @@
           # Use mkDerivation to properly pass GN flags as attrset (gets merged with base)
           axiumBrowser = pkgs.ungoogled-chromium.passthru.mkDerivation (base: {
             packageName = "axium-browser";
+
+            # IMPORTANT: Explicitly set outputs to include sandbox
+            # (mkDerivation doesn't inherit this from base automatically)
+            outputs = [ "out" "sandbox" ];
 
             # Add our patches on top of ungoogled-chromium patches
             patches = base.patches ++ customPatches;
@@ -135,43 +160,94 @@
             buildTargets = base.buildTargets or [ "chrome" "chrome_sandbox" ];
           });
 
-          # Get the sandbox
-          axiumSandbox = axiumBrowser.passthru.sandbox;
+          # Sandbox executable name (matches nixpkgs)
+          sandboxExecutableName = "__chromium-suid-sandbox";
 
-        in pkgs.runCommand "axium-${axiumBrowser.version}" {
-          inherit (axiumBrowser) version;
+          # Library path for runtime dependencies
+          libPath = pkgs.lib.makeLibraryPath runtimeLibs;
+
+          # XDG paths including gsettings schemas
+          xdgPaths = pkgs.lib.concatMapStringsSep ":" (pkg:
+            let
+              share = "${pkg}/share";
+              schema = "${pkg}/share/gsettings-schemas/${pkg.name}";
+            in
+              if builtins.pathExists schema then "${share}:${schema}" else share
+          ) xdgDataDirs;
+
+        in pkgs.stdenv.mkDerivation {
           pname = "axium";
-          meta = axiumBrowser.meta // {
-            mainProgram = "chromium";
-          };
+          version = axiumBrowser.version;
+
+          # Two outputs: main package and sandbox (mirrors nixpkgs)
+          outputs = [ "out" "sandbox" ];
+
+          dontUnpack = true;
+          dontConfigure = true;
+          dontBuild = true;
+
+          installPhase = ''
+            runHook preInstall
+
+            mkdir -p $out/bin $out/share
+            mkdir -p $sandbox/bin
+
+            # Link sandbox from browser's sandbox output
+            ln -s ${axiumBrowser.sandbox}/bin/${sandboxExecutableName} $sandbox/bin/${sandboxExecutableName}
+
+            # Link share resources
+            ln -s ${axiumBrowser}/share/* $out/share/ 2>/dev/null || true
+
+            # Create wrapper script (mirrors nixpkgs ungoogled-chromium exactly)
+            cat > $out/bin/chromium <<WRAPPER
+            #!${pkgs.bash}/bin/bash -e
+
+            # Sandbox detection with fallback (matches nixpkgs)
+            if [ -x "/run/wrappers/bin/${sandboxExecutableName}" ]
+            then
+              export CHROME_DEVEL_SANDBOX="/run/wrappers/bin/${sandboxExecutableName}"
+            else
+              export CHROME_DEVEL_SANDBOX="${axiumBrowser.sandbox}/bin/${sandboxExecutableName}"
+            fi
+
+            # Make generated desktop shortcuts have a valid executable name
+            export CHROME_WRAPPER='chromium'
+
+            # Runtime library path (avoid empty sections before/after colons)
+            export LD_LIBRARY_PATH="\$LD_LIBRARY_PATH\''${LD_LIBRARY_PATH:+:}${libPath}"
+
+            # Remove libredirect from LD_PRELOAD to prevent deadlocks
+            export LD_PRELOAD="\$(echo -n "\$LD_PRELOAD" | ${pkgs.coreutils}/bin/tr ':' '\n' | ${pkgs.gnugrep}/bin/grep -v /lib/libredirect\\.so\$ | ${pkgs.coreutils}/bin/tr '\n' ':')"
+
+            # XDG data directories for desktop integration
+            export XDG_DATA_DIRS=${xdgPaths}\''${XDG_DATA_DIRS:+:}\$XDG_DATA_DIRS
+
+            # Add xdg-utils to PATH (as fallback, suffixed)
+            export PATH="\$PATH\''${PATH:+:}${pkgs.xdg-utils}/bin"
+
+            # Execute chromium with Wayland support if available
+            exec "${axiumBrowser}/libexec/chromium/chromium" \''${NIXOS_OZONE_WL:+\''${WAYLAND_DISPLAY:+--ozone-platform-hint=auto --enable-features=WaylandWindowDecorations --enable-wayland-ime=true}} "\$@"
+            WRAPPER
+            chmod +x $out/bin/chromium
+
+            # Add 'axium' alias
+            ln -s chromium $out/bin/axium
+
+            runHook postInstall
+          '';
+
           passthru = {
             browser = axiumBrowser;
-            sandbox = axiumSandbox;
+            sandbox = axiumBrowser.sandbox;
+            inherit sandboxExecutableName;
+            mkDerivation = pkgs.ungoogled-chromium.passthru.mkDerivation;
           };
-        } ''
-          mkdir -p $out/bin $out/share
 
-          # Link libexec (unstripped - keep all files)
-          if [ -d "${axiumBrowser}/libexec" ]; then
-            ln -s ${axiumBrowser}/libexec $out/libexec
-          fi
-
-          # Create chromium binary wrapper with sandbox support
-          cat > $out/bin/chromium <<EOF
-          #!/bin/sh
-          export CHROME_DEVEL_SANDBOX=/run/wrappers/bin/__chromium-suid-sandbox
-          exec $out/libexec/chromium/chromium "\$@"
-          EOF
-          chmod +x $out/bin/chromium
-
-          # Add 'axium' alias
-          ln -s chromium $out/bin/axium
-
-          # Link share
-          if [ -d "${axiumBrowser}/share" ]; then
-            ln -s ${axiumBrowser}/share $out/share
-          fi
-        '';
+          meta = axiumBrowser.meta // {
+            mainProgram = "chromium";
+            description = "Axium - Custom Chromium Build based on ungoogled-chromium";
+          };
+        };
 
         cloud-build = cloudBuildScript;
         default = self.packages.${system}.browser;
