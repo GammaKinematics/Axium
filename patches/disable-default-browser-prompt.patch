@@ -1,0 +1,44 @@
+diff --git a/chrome/browser/ui/startup/default_browser_prompt/default_browser_prompt.cc b/chrome/browser/ui/startup/default_browser_prompt/default_browser_prompt.cc
+index 01ff11461d..e6f2a4e83c 100644
+--- a/chrome/browser/ui/startup/default_browser_prompt/default_browser_prompt.cc
++++ b/chrome/browser/ui/startup/default_browser_prompt/default_browser_prompt.cc
+@@ -35,16 +35,9 @@
+ 
+ namespace {
+ 
+-// Do not show the prompt if "suppress_default_browser_prompt_for_version" in
+-// the initial preferences is set to the current version.
++// Axium: Always return false to disable default browser prompt
+ bool ShouldShowDefaultBrowserPromptForCurrentVersion() {
+-  const std::string disable_version_string =
+-      g_browser_process->local_state()->GetString(
+-          prefs::kBrowserSuppressDefaultBrowserPrompt);
+-  const base::Version disable_version(disable_version_string);
+-  DCHECK(disable_version_string.empty() || disable_version.IsValid());
+-  return !(disable_version.IsValid() &&
+-           disable_version == version_info::GetVersion());
++  return false;
+ }
+ 
+ void OnCheckIsDefaultBrowserFinished(
+@@ -120,18 +113,7 @@ void MigrateDefaultBrowserLastDeclinedPref(PrefService* profile_prefs) {
+ 
+ void ShowDefaultBrowserPrompt(Profile* profile,
+                               base::OnceCallback<void(bool)> done_callback) {
+-  // Do not check if Chrome is the default browser if there is a policy in
+-  // control of this setting.
+-  if (g_browser_process->local_state()->IsManagedPreference(
+-          prefs::kDefaultBrowserSettingEnabled)) {
+-    // Handling of the browser.default_browser_setting_enabled policy setting is
+-    // taken care of in BrowserProcessImpl.
+-    return;
+-  }
+-
+-  scoped_refptr<shell_integration::DefaultBrowserWorker>(
+-      new shell_integration::DefaultBrowserWorker())
+-      ->StartCheckIsDefault(base::BindOnce(&OnCheckIsDefaultBrowserFinished,
+-                                           profile, std::move(done_callback)));
++  // Axium: Disabled - never show default browser prompt
++  return;
+ }
+ 

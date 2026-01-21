@@ -19,6 +19,7 @@
       customPatches = [
         ./patches/enable-vertical-tabs.patch
         ./patches/compiler-optimizations.patch
+        ./patches/disable-default-browser-prompt.patch
       ];
 
       # Cloud build script - interactive mode
@@ -166,14 +167,17 @@
           # Library path for runtime dependencies
           libPath = pkgs.lib.makeLibraryPath runtimeLibs;
 
-          # XDG paths including gsettings schemas
-          xdgPaths = pkgs.lib.concatMapStringsSep ":" (pkg:
-            let
-              share = "${pkg}/share";
-              schema = "${pkg}/share/gsettings-schemas/${pkg.name}";
-            in
-              if builtins.pathExists schema then "${share}:${schema}" else share
-          ) xdgDataDirs;
+          # XDG paths including gsettings schemas (hardcoded like nixpkgs)
+          xdgPaths = pkgs.lib.concatStringsSep ":" [
+            "${pkgs.cups}/share"
+            "${pkgs.gtk3}/share"
+            "${pkgs.gtk4}/share"
+            "${pkgs.adwaita-icon-theme}/share"
+            "${pkgs.hicolor-icon-theme}/share"
+            "${pkgs.gsettings-desktop-schemas}/share/gsettings-schemas/${pkgs.gsettings-desktop-schemas.name}"
+            "${pkgs.gtk3}/share/gsettings-schemas/${pkgs.gtk3.name}"
+            "${pkgs.gtk4}/share/gsettings-schemas/${pkgs.gtk4.name}"
+          ];
 
         in pkgs.stdenv.mkDerivation {
           pname = "axium";
@@ -199,35 +203,25 @@
             ln -s ${axiumBrowser}/share/* $out/share/ 2>/dev/null || true
 
             # Create wrapper script (mirrors nixpkgs ungoogled-chromium exactly)
-            cat > $out/bin/chromium <<WRAPPER
-            #!${pkgs.bash}/bin/bash -e
+            # Note: ''$ escapes $ in Nix strings, \$ escapes in bash heredoc
+            cat > $out/bin/chromium <<WRAPPER_END
+#!${pkgs.bash}/bin/bash -e
 
-            # Sandbox detection with fallback (matches nixpkgs)
-            if [ -x "/run/wrappers/bin/${sandboxExecutableName}" ]
-            then
-              export CHROME_DEVEL_SANDBOX="/run/wrappers/bin/${sandboxExecutableName}"
-            else
-              export CHROME_DEVEL_SANDBOX="${axiumBrowser.sandbox}/bin/${sandboxExecutableName}"
-            fi
+if [ -x "/run/wrappers/bin/${sandboxExecutableName}" ]
+then
+  export CHROME_DEVEL_SANDBOX="/run/wrappers/bin/${sandboxExecutableName}"
+else
+  export CHROME_DEVEL_SANDBOX="${axiumBrowser.sandbox}/bin/${sandboxExecutableName}"
+fi
 
-            # Make generated desktop shortcuts have a valid executable name
-            export CHROME_WRAPPER='chromium'
+export CHROME_WRAPPER='chromium'
+export LD_LIBRARY_PATH="\$LD_LIBRARY_PATH\''${LD_LIBRARY_PATH:+:}${libPath}"
+export LD_PRELOAD="\$(echo -n "\$LD_PRELOAD" | ${pkgs.coreutils}/bin/tr ':' '\n' | ${pkgs.gnugrep}/bin/grep -v /lib/libredirect\\.so\$ | ${pkgs.coreutils}/bin/tr '\n' ':')"
+export XDG_DATA_DIRS=${xdgPaths}\''${XDG_DATA_DIRS:+:}\$XDG_DATA_DIRS
+export PATH="\$PATH\''${PATH:+:}${pkgs.xdg-utils}/bin"
 
-            # Runtime library path (avoid empty sections before/after colons)
-            export LD_LIBRARY_PATH="\$LD_LIBRARY_PATH\''${LD_LIBRARY_PATH:+:}${libPath}"
-
-            # Remove libredirect from LD_PRELOAD to prevent deadlocks
-            export LD_PRELOAD="\$(echo -n "\$LD_PRELOAD" | ${pkgs.coreutils}/bin/tr ':' '\n' | ${pkgs.gnugrep}/bin/grep -v /lib/libredirect\\.so\$ | ${pkgs.coreutils}/bin/tr '\n' ':')"
-
-            # XDG data directories for desktop integration
-            export XDG_DATA_DIRS=${xdgPaths}\''${XDG_DATA_DIRS:+:}\$XDG_DATA_DIRS
-
-            # Add xdg-utils to PATH (as fallback, suffixed)
-            export PATH="\$PATH\''${PATH:+:}${pkgs.xdg-utils}/bin"
-
-            # Execute chromium with Wayland support if available
-            exec "${axiumBrowser}/libexec/chromium/chromium" \''${NIXOS_OZONE_WL:+\''${WAYLAND_DISPLAY:+--ozone-platform-hint=auto --enable-features=WaylandWindowDecorations --enable-wayland-ime=true}} "\$@"
-            WRAPPER
+exec "${axiumBrowser}/libexec/chromium/chromium" \''${NIXOS_OZONE_WL:+\''${WAYLAND_DISPLAY:+--ozone-platform-hint=auto --enable-features=WaylandWindowDecorations --enable-wayland-ime=true}} "\$@"
+WRAPPER_END
             chmod +x $out/bin/chromium
 
             # Add 'axium' alias
