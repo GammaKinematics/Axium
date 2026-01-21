@@ -20,7 +20,6 @@
   v8_enable_turbofan = true;
   v8_enable_wasm_simd256_revec = true;
   v8_enable_fast_torque = true;      # Faster builtins
-  v8_enable_builtins_optimization = true;
   use_v8_context_snapshot = true;    # Faster startup
 
   # === Security Hardening ===
