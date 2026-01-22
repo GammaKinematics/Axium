@@ -34,7 +34,7 @@
   # === Disable Google Services ===
   enable_hangout_services_extension = false;
   enable_compose = true;             # Required for build (include chain issue)
-  enable_widevine = false;           # DRM - use Spotify app instead
+  enable_widevine = true;           # DRM - use Spotify app instead
   enable_lens_desktop = false;       # Google Lens
   enable_bound_session_credentials = false;  # Device bound session credentials
 
@@ -58,9 +58,9 @@
   enterprise_local_content_analysis = false;
 
   # === Disable PDF & Printing ===
-  enable_pdf = false;                # Use external PDF viewer
-  enable_printing = false;
-  enable_print_preview = false;
+  enable_pdf = true;                # Use external PDF viewer
+  enable_printing = true;
+  enable_print_preview = true;
 
   # === Privacy (Network) ===
   safe_browsing_mode = 0;
