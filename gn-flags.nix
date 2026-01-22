@@ -57,10 +57,10 @@
   enterprise_cloud_content_analysis = false;
   enterprise_local_content_analysis = false;
 
-  # === Disable PDF & Printing ===
-  enable_pdf = false;                # Use external PDF viewer
-  enable_printing = false;
-  enable_print_preview = false;
+  # === PDF & Printing ===
+  enable_pdf = true;                 # Required for build (include chain issue)
+  enable_printing = true;            # Required for build
+  enable_print_preview = true;
 
   # === Privacy (Network) ===
   safe_browsing_mode = 0;
