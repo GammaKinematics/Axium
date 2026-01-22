@@ -44,7 +44,7 @@
   enable_click_to_call = false;      # Phone number detection
   enable_background_mode = false;    # No system tray lurking
   enable_background_contents = false; # No invisible background pages
-  enable_session_service = false;    # No "restore tabs?" prompt
+  enable_session_service = true;     # Restore tabs after restart/crash
   enable_webui_certificate_viewer = false;
   enable_chrome_notifications = false; # No desktop notifications
   enable_screen_ai_service = false;  # OCR features
