@@ -1,19 +1,13 @@
 {
-  # === Build Type ===
-  is_component_build = true;     # Output shared libraries (.so)
-  is_debug = false;
-  is_official_build = false;     # Don't need official signing etc.
-
   # === Performance Optimizations ===
+  # LTO and linker optimizations
   use_thin_lto = true;
   thin_lto_enable_optimizations = true;
   use_lld = true;
   use_icf = true;
   use_text_section_splitting = true;
-  exclude_unwind_tables = true;
-  disable_fieldtrial_testing_config = true;
 
-  # SIMD
+  # SIMD (matches compiler-optimizations.patch)
   use_sse41 = true;
   use_sse42 = true;
   use_avx = true;
@@ -34,21 +28,9 @@
   is_cfi = true;
   init_stack_vars_zero = true;
 
-  # === Disable Google Services (inherited from ungoogled, but explicit) ===
-  safe_browsing_mode = 0;
-  enable_reporting = false;
-  enable_mdns = false;
-  enable_service_discovery = false;
-  use_official_google_api_keys = false;
-  google_api_key = "";
-  google_default_client_id = "";
-  google_default_client_secret = "";
-
-  # === Disable Bloat ===
-  enable_remoting = false;
+  # === Disable Bloat (engine-specific) ===
   enable_vr = false;
-  enable_widevine = false;
-  enable_hangout_services_extension = false;
+  enable_widevine = false;  # Override ungoogled's true
   enable_background_mode = false;
   enable_background_contents = false;
   enable_media_remoting = false;
@@ -56,7 +38,6 @@
   enable_rlz = false;
 
   # === Disable Browser UI Features (not needed for engine) ===
-  enable_extensions = false;
   enable_pdf = false;
   enable_printing = false;
   enable_print_preview = false;
@@ -72,7 +53,7 @@
   enterprise_cloud_content_analysis = false;
   enterprise_local_content_analysis = false;
 
-  # === Keep Media (hardware accel) ===
+  # === Media (hardware accel) ===
   use_vaapi = true;
   proprietary_codecs = true;
   ffmpeg_branding = "Chrome";

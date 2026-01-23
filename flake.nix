@@ -16,6 +16,12 @@
         ./patches/compiler-optimizations.patch
       ];
 
+      # Fetch esbuild 0.25.1 binary to match devtools-frontend node_modules
+      esbuild-bin = pkgs.fetchurl {
+        url = "https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-0.25.1.tgz";
+        hash = "sha256-o5csINGVRXkrpsar5WS2HJH2bPokL/m//Z5dWcZUUuU=";
+      };
+
     in
     {
       packages.${system} = {
@@ -30,6 +36,13 @@
 
           # Engine-specific GN flags
           gnFlags = engineGnFlags;
+
+          # Symlink esbuild where devtools-frontend expects it
+          postPatch = base.postPatch + ''
+            mkdir -p third_party/devtools-frontend/src/third_party/esbuild
+            tar -xzf ${esbuild-bin} -C third_party/devtools-frontend/src/third_party/esbuild --strip-components=1
+            mv third_party/devtools-frontend/src/third_party/esbuild/bin/esbuild third_party/devtools-frontend/src/third_party/esbuild/esbuild
+          '';
 
           # Single output (no sandbox needed for library)
           outputs = [ "out" ];
