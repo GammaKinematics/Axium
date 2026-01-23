@@ -185,6 +185,9 @@ BUILDSCRIPT
 
             # Keep same build targets
             buildTargets = base.buildTargets or [ "chrome" "chrome_sandbox" ];
+
+            # IMPORTANT: Preserve base install phase (not ninja install)
+            installPhase = base.installPhase;
           });
 
           # Sandbox executable name (matches nixpkgs)
