@@ -29,29 +29,29 @@
   init_stack_vars_zero = true;
 
   # === Disable Bloat (engine-specific) ===
-  enable_vr = false;
-  enable_widevine = false;  # Override ungoogled's true
-  enable_background_mode = false;
-  enable_background_contents = false;
-  enable_media_remoting = false;
-  enable_click_to_call = false;
-  enable_rlz = false;
+  # enable_vr = false;
+  # enable_widevine = false;  # Override ungoogled's true
+  # enable_background_mode = false;
+  # enable_background_contents = false;
+  # enable_media_remoting = false;
+  # enable_click_to_call = false;
+  # enable_rlz = false;
 
   # === Disable Browser UI Features (not needed for engine) ===
-  enable_pdf = false;
-  enable_printing = false;
-  enable_print_preview = false;
-  enable_chrome_notifications = false;
-  enable_webui_certificate_viewer = false;
-  enable_screen_ai_service = false;
-  enable_offline_pages = false;
-  enable_lens_desktop = false;
-  enable_bound_session_credentials = false;
-  include_transport_security_state_preload_list = false;
+  # enable_pdf = false;
+  # enable_printing = false;
+  # enable_print_preview = false;
+  # enable_chrome_notifications = false;
+  # enable_webui_certificate_viewer = false;
+  # enable_screen_ai_service = false;
+  # enable_offline_pages = false;
+  # enable_lens_desktop = false;
+  # enable_bound_session_credentials = false;
+  # include_transport_security_state_preload_list = false;
 
   # === Disable Enterprise ===
-  enterprise_cloud_content_analysis = false;
-  enterprise_local_content_analysis = false;
+  # enterprise_cloud_content_analysis = false;
+  # enterprise_local_content_analysis = false;
 
   # === Media (hardware accel) ===
   use_vaapi = true;
@@ -59,5 +59,5 @@
   ffmpeg_branding = "Chrome";
   use_pulseaudio = true;
 
-  use_kerberos = false;
+  # use_kerberos = false;
 }
