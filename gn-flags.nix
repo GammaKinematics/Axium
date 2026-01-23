@@ -31,45 +31,11 @@
   blink_symbol_level = 0;
   v8_symbol_level = 0;
 
-  # === Disable Google Services ===
-  enable_hangout_services_extension = false;
-  enable_compose = true;             # Required for build (include chain issue)
-  enable_widevine = true;           # DRM - use Spotify app instead
-  enable_lens_desktop = false;       # Google Lens
-  enable_bound_session_credentials = false;  # Device bound session credentials
-
-  # === Disable Bloat ===
-  enable_remoting = false;           # Chrome Remote Desktop
-  enable_vr = false;                 # VR/AR support
-  enable_click_to_call = false;      # Phone number detection
-  enable_background_mode = false;    # No system tray lurking
-  enable_background_contents = false; # No invisible background pages
-  enable_session_service = true;     # Restore tabs after restart/crash
-  enable_webui_certificate_viewer = false;
-  enable_chrome_notifications = false; # No desktop notifications
-  enable_screen_ai_service = false;  # OCR features
-  enable_media_remoting = false;     # Cast media
-  enable_rlz = false;                # Tracking
-  enable_offline_pages = false;      # Android-focused
-  include_transport_security_state_preload_list = false; # ~500KB HSTS list
-
-  # === Disable Enterprise Bloat ===
-  enterprise_cloud_content_analysis = false;
-  enterprise_local_content_analysis = false;
-
-  # === Disable PDF & Printing ===
-  enable_pdf = true;                # Use external PDF viewer
-  enable_printing = true;
-  enable_print_preview = true;
-
-  # === Privacy (Network) ===
-  safe_browsing_mode = 0;
-  enable_reporting = false;
-  enable_mdns = false;
-  enable_service_discovery = false;
-  use_kerberos = false;
-
-  # === Media (keep hardware accel) ===
+  # === Media ===
   use_vaapi = true;                  # Hardware video decode
   proprietary_codecs = true;         # H.264 etc
+  enable_widevine = true;            # DRM for Netflix etc
+
+  # Let ungoogled-chromium handle the de-googling
+  # Only override what we specifically need
 }
