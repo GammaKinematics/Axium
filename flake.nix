@@ -168,30 +168,34 @@ BUILDSCRIPT
       packages.${system} = {
         # Build browser with custom GN flags and patches using mkDerivation
         browser = let
+          # Sandbox executable name (matches nixpkgs)
+          sandboxExecutableName = "__chromium-suid-sandbox";
+
           # Use mkDerivation to properly pass GN flags as attrset (gets merged with base)
           axiumBrowser = pkgs.ungoogled-chromium.passthru.mkDerivation (base: {
-            packageName = "axium-browser";
+            packageName = "chromium";  # Keep as chromium for max compatibility
 
-            # IMPORTANT: Explicitly set outputs to include sandbox
-            # (mkDerivation doesn't inherit this from base automatically)
+            # Explicitly set outputs to include sandbox
             outputs = [ "out" "sandbox" ];
 
             # Add our patches on top of ungoogled-chromium patches
             patches = base.patches ++ customPatches;
 
             # Pass GN flags as attrset - mkDerivation merges with base flags
-            # Our flags override base flags due to attrset merge behavior
             gnFlags = axiumGnFlags;
 
             # Keep same build targets
             buildTargets = base.buildTargets or [ "chrome" "chrome_sandbox" ];
 
-            # IMPORTANT: Preserve base install phase (not ninja install)
-            installPhase = base.installPhase;
-          });
+            # Inherit installPhase from ungoogled-chromium browser
+            inherit (pkgs.ungoogled-chromium.passthru.browser) installPhase;
 
-          # Sandbox executable name (matches nixpkgs)
-          sandboxExecutableName = "__chromium-suid-sandbox";
+            # Hydra scheduling hint for large builds
+            requiredSystemFeatures = [ "big-parallel" ];
+
+            # Pass through sandbox executable name (matches browser.nix)
+            passthru = { inherit sandboxExecutableName; };
+          });
 
           # Library path for runtime dependencies
           libPath = pkgs.lib.makeLibraryPath runtimeLibs;
@@ -253,7 +257,8 @@ exec "${axiumBrowser}/libexec/chromium/chromium" \''${NIXOS_OZONE_WL:+\''${WAYLA
 WRAPPER_END
             chmod +x $out/bin/chromium
 
-            # Add 'axium' alias
+            # Add compatibility symlinks
+            ln -s chromium $out/bin/chromium-browser
             ln -s chromium $out/bin/axium
 
             runHook postInstall
