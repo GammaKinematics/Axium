@@ -88,16 +88,14 @@ cd /build/axium-engine
 
 export HCLOUD_TOKEN="''${HCLOUD_TOKEN}"
 export CACHIX_AUTH_TOKEN="''${CACHIX_AUTH_TOKEN}"
-SERVER_ID="''${SERVER_ID}"
 
 echo ""
 echo "=========================================="
-echo "  AXIUM ENGINE BUILD - AUTONOMOUS MODE"
+echo "  AXIUM ENGINE BUILD"
 echo "=========================================="
 echo ""
 echo "Build started at \$(date)"
 echo "Building: content/ library"
-echo "Server will self-destruct when done."
 echo ""
 
 if nix build .#engine --cores 0 -j auto -L 2>&1 | tee build.log; then
@@ -121,9 +119,7 @@ else
 fi
 
 echo ""
-echo "Deleting server in 30 seconds... (Ctrl+C to cancel)"
-sleep 30
-hcloud server delete "\$SERVER_ID" --yes
+echo "Build finished at \$(date)"
 BUILDSCRIPT
         ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" chmod +x /build/run-build.sh
 
@@ -134,9 +130,8 @@ BUILDSCRIPT
         log ""
         log "Server: $SERVER_IP (ID: $SERVER_ID)"
         log ""
-        log "Build will run in tmux. When complete:"
-        log "  - On success: pushes to cachix"
-        log "  - Then: server self-destructs (30s delay)"
+        log "Build will run in tmux. On success: pushes to cachix"
+        log "Delete server manually when done: hcloud server delete $SERVER_ID"
         log ""
         warn "TIPS:"
         log "  - Ctrl+B [ to scroll/pause output, q to resume"
@@ -174,6 +169,69 @@ BUILDSCRIPT
 
           # Single output (no sandbox needed for library)
           outputs = [ "out" ];
+
+          # Custom install phase for engine library output
+          installPhase = ''
+            runHook preInstall
+
+            mkdir -p $out/{lib,include,share/axium-engine}
+
+            # === Static Archive ===
+            echo "Creating static archive from object files..."
+            find out/Release/obj -name "*.o" -type f > /tmp/objects.txt
+            echo "Found $(wc -l < /tmp/objects.txt) object files"
+            ar rcs $out/lib/libaxium-engine.a @/tmp/objects.txt
+
+            # === Headers ===
+            echo "Copying headers..."
+            # Copy all headers - can strip down later
+            for dir in \
+              base \
+              cc \
+              components \
+              content \
+              crypto \
+              device \
+              gin \
+              gpu \
+              ipc \
+              media \
+              mojo \
+              net \
+              sandbox \
+              services \
+              skia \
+              storage \
+              ui \
+              url \
+              v8 \
+              third_party/abseil-cpp \
+              third_party/blink/public \
+              third_party/perfetto/include
+            do
+              if [ -d "$dir" ]; then
+                find "$dir" -name "*.h" -type f | while read -r header; do
+                  target="$out/include/$header"
+                  mkdir -p "$(dirname "$target")"
+                  cp "$header" "$target"
+                done
+              fi
+            done
+
+            # === Resources ===
+            echo "Copying resources..."
+            cp out/Release/*.pak $out/share/axium-engine/ 2>/dev/null || true
+            cp out/Release/icudtl.dat $out/share/axium-engine/ 2>/dev/null || true
+            cp -r out/Release/locales $out/share/axium-engine/ 2>/dev/null || true
+            cp out/Release/*.bin $out/share/axium-engine/ 2>/dev/null || true
+
+            echo "=== Engine install complete ==="
+            echo "Library:   $out/lib/libaxium-engine.a"
+            echo "Headers:   $out/include/"
+            echo "Resources: $out/share/axium-engine/"
+
+            runHook postInstall
+          '';
         });
 
         cloud-build = cloudBuildScript;
