@@ -34,7 +34,7 @@
         : "''${HCLOUD_TOKEN:?Set HCLOUD_TOKEN}"
         : "''${CACHIX_AUTH_TOKEN:?Set CACHIX_AUTH_TOKEN}"
 
-        REPO_URL="https://github.com/GammaKinematics/Axium-Legacy.git"
+        REPO_URL="https://github.com/GammaKinematics/Axium.git"
         REPO_BRANCH="axium-engine"
         SERVER_TYPE="''${SERVER_TYPE:-ccx33}"
         SERVER_NAME="axium-engine-builder-$(date +%s)"
