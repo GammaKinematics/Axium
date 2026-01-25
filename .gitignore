@@ -2,6 +2,10 @@
 result
 result-*
 
+# Build artifacts
+build-output/
+*.tar.gz
+
 # Reference repos (large, not part of project)
 thorium/
 ungoogled-chromium/

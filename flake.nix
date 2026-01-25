@@ -152,7 +152,13 @@ BUILDSCRIPT
           packageName = "axium-engine";
 
           # Only build content/ - no chrome, no shell
-          buildTargets = [ "content" ];
+          # Build content library and resource packs
+          buildTargets = [
+            "content"
+            "content:content_resources"
+            "third_party/blink/public:resources"
+            "ui/resources:ui_resources_grd"
+          ];
 
           # Ungoogled-chromium patches + ours
           patches = base.patches ++ enginePatches;
@@ -182,11 +188,11 @@ BUILDSCRIPT
             echo "Found $(wc -l < /tmp/objects.txt) object files"
             ar rcs $out/lib/libaxium-engine.a @/tmp/objects.txt
 
-            # === Headers ===
-            echo "Copying headers..."
-            # Copy all headers - can strip down later
+            # === Source Headers ===
+            echo "Copying source headers..."
             for dir in \
               base \
+              build \
               cc \
               components \
               content \
@@ -217,6 +223,18 @@ BUILDSCRIPT
                 done
               fi
             done
+
+            # === Generated Headers ===
+            echo "Copying generated headers from out/Release/gen/..."
+            if [ -d "out/Release/gen" ]; then
+              find out/Release/gen -name "*.h" -type f | while read -r header; do
+                # Strip out/Release/gen/ prefix
+                rel_path="''${header#out/Release/gen/}"
+                target="$out/include/$rel_path"
+                mkdir -p "$(dirname "$target")"
+                cp "$header" "$target"
+              done
+            fi
 
             # === Resources ===
             echo "Copying resources..."
