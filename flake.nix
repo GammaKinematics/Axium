@@ -232,6 +232,11 @@ BUILDSCRIPT
 
             runHook postInstall
           '';
+
+          # Override postFixup - base chromium tries to patchelf binaries that don't exist for library build
+          postFixup = ''
+            echo "Skipping postFixup binary patching (library build)"
+          '';
         });
 
         cloud-build = cloudBuildScript;
