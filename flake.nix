@@ -20,6 +20,7 @@
       enginePatches = [
         ./patches/compiler-optimizations.patch
         ./patches/remove-on-device-translation-assert.patch
+        ./patches/remove-speech-service-assert.patch
       ];
 
       # Fetch esbuild 0.25.1 binary to match devtools-frontend node_modules
