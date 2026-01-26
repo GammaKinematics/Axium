@@ -31,7 +31,7 @@
 
       # Local build server configuration
       buildServer = "lebowski@192.168.2.26";
-      buildDir = "/build/axium-engine";
+      buildDir = "/home/lebowski/axium-engine";
       repoUrl = "https://github.com/GammaKinematics/Axium-Engine.git";
 
       # Build script for local build server
