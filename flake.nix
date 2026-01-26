@@ -128,23 +128,53 @@ REMOTE
             echo "=== AXIUM: Done ==="
           '';
 
-          # DEBUG: Use tracelog to see what files GN loads before failure
+          # DEBUG: Wrap gn to add --tracelog and NOT fail (so we can analyze trace)
           preConfigure = ''
-            echo "=== AXIUM: Running gn gen with --tracelog ==="
-            gn gen --tracelog=gn-trace.json --args="import(\"//build/args/headless.gn\") use_sysroot=false" out/Release 2>&1 || true
+            echo "=== AXIUM: Wrapping gn to add --tracelog ==="
+            real_gn=$(which gn)
+            mkdir -p .gn-wrapper
+            cat > .gn-wrapper/gn << 'EOF'
+#!/bin/bash
+REAL_GN="$(dirname "$0")/.real-gn"
+if [[ "$1" == "gen" ]]; then
+  echo "[gn-wrapper] Adding --tracelog to gn gen"
+  "$REAL_GN" gen --tracelog=gn-trace.json "''${@:2}"
+  GN_EXIT=$?
+  echo "[gn-wrapper] gn gen exited with code $GN_EXIT"
+  echo "[gn-wrapper] Returning success so we can analyze trace"
+  exit 0
+else
+  exec "$REAL_GN" "$@"
+fi
+EOF
+            cp "$real_gn" .gn-wrapper/.real-gn
+            chmod +x .gn-wrapper/gn
+            export PATH="$PWD/.gn-wrapper:$PATH"
+            echo "=== gn wrapper installed ==="
+          '';
 
+          # Analyze the trace after gn gen
+          postConfigure = ''
             echo ""
             echo "=========================================="
-            echo "=== GN TRACE: All BUILD.gn file loads ==="
+            echo "=== GN TRACE: BUILD.gn files loaded ==="
             echo "=========================================="
-            cat gn-trace.json | grep -o '"[^"]*BUILD.gn"' | sort -u | head -200
+            if [ -f gn-trace.json ]; then
+              grep -oE '"//[^"]+BUILD\.gn"' gn-trace.json | sort -u | head -300
+            else
+              echo "(no trace file)"
+              ls -la *.json 2>/dev/null || true
+            fi
             echo "=========================================="
 
             echo ""
-            echo "=== FILES LOADING chrome/browser ==="
-            grep -B5 "chrome/browser" gn-trace.json | head -100 || echo "(no matches)"
+            echo "=== chrome/browser in trace ==="
+            if [ -f gn-trace.json ]; then
+              grep "chrome/browser" gn-trace.json | head -50 || echo "(none)"
+            fi
             echo "=========================================="
 
+            echo "=== DEBUG DONE ==="
             exit 1
           '';
 
