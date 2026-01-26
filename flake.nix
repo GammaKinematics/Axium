@@ -19,7 +19,7 @@
 
       enginePatches = [
         ./patches/compiler-optimizations.patch
-        # Note: Most assert patches no longer needed - minimal BUILD.gn avoids loading chrome/* targets
+        ./patches/remove-on-device-translation-assert.patch
       ];
 
       # Fetch esbuild 0.25.1 binary to match devtools-frontend node_modules
@@ -126,56 +126,6 @@ REMOTE
             echo "BUILD.gn after copy:"
             head -10 BUILD.gn
             echo "=== AXIUM: Done ==="
-          '';
-
-          # DEBUG: Wrap gn to add --tracelog and NOT fail (so we can analyze trace)
-          preConfigure = ''
-            echo "=== AXIUM: Wrapping gn to add --tracelog ==="
-            real_gn=$(which gn)
-            mkdir -p .gn-wrapper
-            cat > .gn-wrapper/gn << 'EOF'
-#!/bin/bash
-REAL_GN="$(dirname "$0")/.real-gn"
-if [[ "$1" == "gen" ]]; then
-  echo "[gn-wrapper] Adding --tracelog to gn gen"
-  "$REAL_GN" gen --tracelog=gn-trace.json "''${@:2}"
-  GN_EXIT=$?
-  echo "[gn-wrapper] gn gen exited with code $GN_EXIT"
-  echo "[gn-wrapper] Returning success so we can analyze trace"
-  exit 0
-else
-  exec "$REAL_GN" "$@"
-fi
-EOF
-            cp "$real_gn" .gn-wrapper/.real-gn
-            chmod +x .gn-wrapper/gn
-            export PATH="$PWD/.gn-wrapper:$PATH"
-            echo "=== gn wrapper installed ==="
-          '';
-
-          # Analyze the trace after gn gen
-          postConfigure = ''
-            echo ""
-            echo "=========================================="
-            echo "=== GN TRACE: BUILD.gn files loaded ==="
-            echo "=========================================="
-            if [ -f gn-trace.json ]; then
-              grep -oE '"//[^"]+BUILD\.gn"' gn-trace.json | sort -u | head -300
-            else
-              echo "(no trace file)"
-              ls -la *.json 2>/dev/null || true
-            fi
-            echo "=========================================="
-
-            echo ""
-            echo "=== chrome/browser in trace ==="
-            if [ -f gn-trace.json ]; then
-              grep "chrome/browser" gn-trace.json | head -50 || echo "(none)"
-            fi
-            echo "=========================================="
-
-            echo "=== DEBUG DONE ==="
-            exit 1
           '';
 
           # Single output (no sandbox needed for library)

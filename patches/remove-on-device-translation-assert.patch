@@ -1,0 +1,14 @@
+diff --git a/components/services/on_device_translation/public/cpp/BUILD.gn b/components/services/on_device_translation/public/cpp/BUILD.gn
+index 8056f7855e..902c13ddf3 100644
+--- a/components/services/on_device_translation/public/cpp/BUILD.gn
++++ b/components/services/on_device_translation/public/cpp/BUILD.gn
+@@ -4,7 +4,8 @@
+ 
+ import("//components/services/on_device_translation/buildflags/features.gni")
+ 
+-assert(enable_on_device_translation)
++# Axium: Remove assert to allow building without on_device_translation
++# assert(enable_on_device_translation)
+ 
+ source_set("cpp") {
+   sources = [
