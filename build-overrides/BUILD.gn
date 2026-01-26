@@ -1,19 +1,14 @@
-# Axium Engine - Minimal root BUILD.gn
-# Testing with just //content to isolate dependencies
-
-import("//build/config/features.gni")
+# Axium Engine - Empty BUILD.gn test
+# Testing if chrome/browser loads even with NO deps
 
 group("gn_all") {
-  deps = [
-    "//content",
-    "//content/public/app",
-  ]
+  deps = []
 }
 
 group("default") {
-  deps = [ ":gn_all" ]
+  deps = []
 }
 
 group("all") {
-  deps = [ ":gn_all" ]
+  deps = []
 }
