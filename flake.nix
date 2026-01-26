@@ -104,9 +104,10 @@ REMOTE
           # Build content library and resource packs
           buildTargets = [
             "content"
-            "content:content_resources"
-            "third_party/blink/public:resources"
-            "ui/resources:ui_resources_grd"
+            "content/public/app"
+            # "content:content_resources"
+            # "third_party/blink/public:resources"
+            # "ui/resources:ui_resources_grd"
           ];
 
           # Ungoogled-chromium patches + ours
