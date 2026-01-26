@@ -78,7 +78,7 @@ REMOTE
 
         # Start build in tmux
         log "Starting build..."
-        ${pkgs.openssh}/bin/ssh "$SERVER" "tmux new-session -d -s axium-build 'cd $BUILD_DIR && nix build .#engine --cores 0 -j auto -L 2>&1 | tee build.log; echo; echo Build finished - press enter to close; read'"
+        ${pkgs.openssh}/bin/ssh "$SERVER" "tmux new-session -d -s axium-build 'cd $BUILD_DIR && nix build .#engine --cores 0 -j auto -L --log-format bar-with-logs 2>&1 | stdbuf -oL tee build.log; echo; echo Build finished - press enter to close; read'"
 
         echo ""
         log "============================================"
