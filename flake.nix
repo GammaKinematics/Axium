@@ -128,6 +128,48 @@ REMOTE
             echo "=== AXIUM: Done ==="
           '';
 
+          # Add GN debugging to trace dependency chain
+          preConfigure = (base.preConfigure or "") + ''
+            echo "=== AXIUM: GN Debugging ==="
+            echo "Running gn gen with tracelog..."
+          '';
+
+          # Override configurePhase to add tracelog and capture deps
+          configurePhase = ''
+            runHook preConfigure
+
+            # Run replace_gn_files.py (from base)
+            python3 build/linux/unbundle/replace_gn_files.py --system-libraries ${pkgs.lib.concatStringsSep " " [
+              "ffmpeg" "flac" "fontconfig" "freetype" "harfbuzz-ng" "icu" "libdrm"
+              "libevent" "libjpeg" "libpng" "libwebp" "libxml" "libxslt" "opus" "zlib"
+            ]}
+
+            # First attempt: run gn gen with tracelog to see what gets loaded
+            echo "=== Running gn gen with --tracelog ==="
+            gn gen --args='${builtins.concatStringsSep " " (builtins.attrValues (builtins.mapAttrs (k: v: "${k}=${if builtins.isBool v then (if v then "true" else "false") else if builtins.isString v then "\"${v}\"" else toString v}") (import ./gn-flags.nix)))}' --tracelog=gn-trace.json out/Release 2>&1 | tee gn-gen-output.txt || true
+
+            echo ""
+            echo "=== GN trace log (files loaded): ==="
+            if [ -f gn-trace.json ]; then
+              # Extract which BUILD.gn files were loaded
+              grep -o '"[^"]*BUILD.gn"' gn-trace.json | sort -u | head -50
+              echo "..."
+              echo "Full trace saved to gn-trace.json"
+            fi
+
+            echo ""
+            echo "=== Checking if chrome/browser was loaded: ==="
+            grep -i "chrome/browser" gn-trace.json 2>/dev/null | head -20 || echo "No chrome/browser in trace"
+
+            echo ""
+            echo "=== GN gen output: ==="
+            cat gn-gen-output.txt
+
+            echo ""
+            echo "=== AXIUM: Debug complete, failing build for analysis ==="
+            exit 1
+          '';
+
           # Single output (no sandbox needed for library)
           outputs = [ "out" ];
 
