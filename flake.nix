@@ -117,8 +117,14 @@ REMOTE
 
           # Override root BUILD.gn with minimal version for content-only build
           postPatch = (base.postPatch or "") + ''
-            echo "Replacing root BUILD.gn with Axium minimal version..."
-            cp ${./build-overrides/BUILD.gn} BUILD.gn
+            echo "=== AXIUM: Replacing root BUILD.gn ==="
+            echo "Source file contents:"
+            cat ${./build-overrides/BUILD.gn}
+            echo "---"
+            cp -v ${./build-overrides/BUILD.gn} BUILD.gn
+            echo "BUILD.gn after copy:"
+            head -10 BUILD.gn
+            echo "=== AXIUM: Done ==="
           '';
 
           # Single output (no sandbox needed for library)
