@@ -1,14 +1,22 @@
-# Axium Engine - Empty BUILD.gn test
-# Testing if chrome/browser loads even with NO deps
+# Axium Engine - Minimal BUILD.gn for content-only build
 
 group("gn_all") {
-  deps = []
+  deps = [
+    "//content",
+    "//content/public/app",
+  ]
 }
 
 group("default") {
-  deps = []
+  deps = [
+    "//content",
+    "//content/public/app",
+  ]
 }
 
 group("all") {
-  deps = []
+  deps = [
+    "//content",
+    "//content/public/app",
+  ]
 }
