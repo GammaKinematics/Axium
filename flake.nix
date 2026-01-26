@@ -128,24 +128,23 @@ REMOTE
             echo "=== AXIUM: Done ==="
           '';
 
-          # DEBUG: Dump GN dependency tree after configure
-          postConfigure = ''
-            echo ""
-            echo "=========================================="
-            echo "=== DEPENDENCY TREE FOR //content ==="
-            echo "=========================================="
-            gn desc out/Release //content deps --tree 2>&1 || echo "(gn desc failed)"
-            echo "=========================================="
+          # DEBUG: Use tracelog to see what files GN loads before failure
+          preConfigure = ''
+            echo "=== AXIUM: Running gn gen with --tracelog ==="
+            gn gen --tracelog=gn-trace.json --args="import(\"//build/args/headless.gn\") use_sysroot=false" out/Release 2>&1 || true
 
             echo ""
             echo "=========================================="
-            echo "=== DEPENDENCY TREE FOR //content/public/app ==="
+            echo "=== GN TRACE: All BUILD.gn file loads ==="
             echo "=========================================="
-            gn desc out/Release //content/public/app deps --tree 2>&1 || echo "(gn desc failed)"
+            cat gn-trace.json | grep -o '"[^"]*BUILD.gn"' | sort -u | head -200
             echo "=========================================="
 
             echo ""
-            echo "=== DEBUG COMPLETE ==="
+            echo "=== FILES LOADING chrome/browser ==="
+            grep -B5 "chrome/browser" gn-trace.json | head -100 || echo "(no matches)"
+            echo "=========================================="
+
             exit 1
           '';
 
