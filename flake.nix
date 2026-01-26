@@ -15,134 +15,83 @@
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
 
-      engineGnFlags = import ./gn-flags-engine.nix;
+      engineGnFlags = import ./gn-flags.nix;
 
       enginePatches = [
         ./patches/compiler-optimizations.patch
+        ./patches/disable-guest-view-assert.patch
       ];
 
       # Fetch esbuild 0.25.1 binary to match devtools-frontend node_modules
-      esbuild-bin = pkgs.fetchurl {
-        url = "https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-0.25.1.tgz";
-        hash = "sha256-o5csINGVRXkrpsar5WS2HJH2bPokL/m//Z5dWcZUUuU=";
-      };
+      # (Commented out - devtools frontend disabled)
+      # esbuild-bin = pkgs.fetchurl {
+      #   url = "https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-0.25.1.tgz";
+      #   hash = "sha256-o5csINGVRXkrpsar5WS2HJH2bPokL/m//Z5dWcZUUuU=";
+      # };
 
-      # Cloud build script - autonomous with tmux for monitoring
-      cloudBuildScript = pkgs.writeShellScriptBin "axium-cloud-build" ''
+      # Local build server configuration
+      buildServer = "lebowski@192.168.2.26";
+      buildDir = "/build/axium-engine";
+      repoUrl = "https://github.com/GammaKinematics/Axium-Engine.git";
+
+      # Build script for local build server
+      buildScript = pkgs.writeShellScriptBin "axium-build" ''
         set -euo pipefail
 
-        : "''${HCLOUD_TOKEN:?Set HCLOUD_TOKEN}"
-        : "''${CACHIX_AUTH_TOKEN:?Set CACHIX_AUTH_TOKEN}"
-
-        REPO_URL="https://github.com/GammaKinematics/Axium.git"
-        REPO_BRANCH="axium-engine"
-        SERVER_TYPE="''${SERVER_TYPE:-ccx33}"
-        SERVER_NAME="axium-engine-builder-$(date +%s)"
+        SERVER="${buildServer}"
+        BUILD_DIR="${buildDir}"
+        REPO_URL="${repoUrl}"
+        BRANCH="''${1:-stripped-engine}"
 
         log() { echo -e "\033[0;32m[+]\033[0m $1"; }
-        warn() { echo -e "\033[0;33m[!]\033[0m $1"; }
+        err() { echo -e "\033[0;31m[!]\033[0m $1"; }
 
-        log "Creating Hetzner server: $SERVER_NAME ($SERVER_TYPE)..."
-        SERVER_JSON=$(${pkgs.hcloud}/bin/hcloud server create \
-          --name "$SERVER_NAME" \
-          --type "$SERVER_TYPE" \
-          --image ubuntu-24.04 \
-          --location hel1 \
-          --ssh-key V3 \
-          -o json)
+        log "Axium Engine Build"
+        log "Server: $SERVER"
+        log "Branch: $BRANCH"
+        echo ""
 
-        SERVER_ID=$(echo "$SERVER_JSON" | ${pkgs.jq}/bin/jq -r '.server.id')
-        SERVER_IP=$(echo "$SERVER_JSON" | ${pkgs.jq}/bin/jq -r '.server.public_net.ipv4.ip')
+        # Check SSH connectivity
+        log "Checking SSH connection..."
+        if ! ${pkgs.openssh}/bin/ssh -o ConnectTimeout=5 "$SERVER" true 2>/dev/null; then
+          err "Cannot connect to $SERVER"
+          exit 1
+        fi
 
-        log "Server: $SERVER_IP (ID: $SERVER_ID)"
-        log "Waiting for SSH..."
-        sleep 30
-
-        for i in {1..30}; do
-          ${pkgs.openssh}/bin/ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            root@"$SERVER_IP" true 2>/dev/null && break
-          sleep 10
-        done
-
-        SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-
-        log "Installing Nix on remote server..."
-        ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" bash <<'SETUP'
+        # Clone or update repo
+        log "Fetching source from git..."
+        ${pkgs.openssh}/bin/ssh "$SERVER" bash <<REMOTE
 set -euo pipefail
-curl -L https://nixos.org/nix/install | sh -s -- --daemon --yes
-source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
-mkdir -p ~/.config/nix
-echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
-nix profile install nixpkgs#cachix nixpkgs#git nixpkgs#tmux nixpkgs#hcloud
-SETUP
-
-        log "Cloning repository (branch: $REPO_BRANCH)..."
-        ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" "source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh && git clone -b $REPO_BRANCH $REPO_URL /build/axium-engine"
-
-        # Create the build script on the remote server
-        ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" "cat > /build/run-build.sh" <<BUILDSCRIPT
-#!/usr/bin/env bash
-set -euo pipefail
-source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
-cd /build/axium-engine
-
-export HCLOUD_TOKEN="''${HCLOUD_TOKEN}"
-export CACHIX_AUTH_TOKEN="''${CACHIX_AUTH_TOKEN}"
-
-echo ""
-echo "=========================================="
-echo "  AXIUM ENGINE BUILD"
-echo "=========================================="
-echo ""
-echo "Build started at \$(date)"
-echo "Building: content/ library"
-echo ""
-
-if nix build .#engine --cores 0 -j auto -L 2>&1 | tee build.log; then
-    echo ""
-    echo "=========================================="
-    echo "  BUILD SUCCEEDED"
-    echo "=========================================="
-    echo ""
-    echo "Pushing to cachix..."
-    cachix authtoken "\$CACHIX_AUTH_TOKEN"
-    if cachix push axium ./result; then
-        echo "Cachix push complete!"
-    else
-        echo "Cachix push failed!"
-    fi
+if [ -d "$BUILD_DIR/.git" ]; then
+  cd "$BUILD_DIR"
+  git fetch origin
+  git checkout "$BRANCH"
+  git reset --hard "origin/$BRANCH"
 else
-    echo ""
-    echo "=========================================="
-    echo "  BUILD FAILED"
-    echo "=========================================="
+  rm -rf "$BUILD_DIR"
+  git clone -b "$BRANCH" "$REPO_URL" "$BUILD_DIR"
 fi
+REMOTE
 
-echo ""
-echo "Build finished at \$(date)"
-BUILDSCRIPT
-        ${pkgs.openssh}/bin/ssh $SSH_OPTS root@"$SERVER_IP" chmod +x /build/run-build.sh
+        # Kill existing build session if any
+        ${pkgs.openssh}/bin/ssh "$SERVER" "tmux kill-session -t axium-build 2>/dev/null || true"
 
-        log ""
-        log "============================================"
-        log "  SERVER READY - STARTING BUILD"
-        log "============================================"
-        log ""
-        log "Server: $SERVER_IP (ID: $SERVER_ID)"
-        log ""
-        log "Build will run in tmux. On success: pushes to cachix"
-        log "Delete server manually when done: hcloud server delete $SERVER_ID"
-        log ""
-        warn "TIPS:"
-        log "  - Ctrl+B [ to scroll/pause output, q to resume"
-        log "  - Ctrl+B D to detach (build continues)"
-        log "  - To resume: ssh -t root@$SERVER_IP tmux attach -t build"
-        log ""
-        log "============================================"
-        log ""
+        # Start build in tmux
+        log "Starting build..."
+        ${pkgs.openssh}/bin/ssh "$SERVER" "tmux new-session -d -s axium-build 'cd $BUILD_DIR && nix build .#engine --cores 0 -j auto -L 2>&1 | tee build.log; echo; echo Build finished - press enter to close; read'"
 
-        read -p "Press Enter to SSH and start the build (or Ctrl+C to exit)..."
-        ${pkgs.openssh}/bin/ssh $SSH_OPTS -t root@"$SERVER_IP" "tmux new -s build /build/run-build.sh"
+        echo ""
+        log "============================================"
+        log "  BUILD STARTED"
+        log "============================================"
+        echo ""
+        log "Attach:  ssh -t $SERVER tmux attach -t axium-build"
+        log "Logs:    ssh $SERVER tail -f $BUILD_DIR/build.log"
+        log "Kill:    ssh $SERVER tmux kill-session -t axium-build"
+        echo ""
+
+        read -p "Press Enter to attach to build session (Ctrl+C to exit)..."
+        ${pkgs.openssh}/bin/ssh -t "$SERVER" "tmux attach -t axium-build"
       '';
 
     in
@@ -167,11 +116,12 @@ BUILDSCRIPT
           gnFlags = engineGnFlags;
 
           # Symlink esbuild where devtools-frontend expects it
-          postPatch = base.postPatch + ''
-            mkdir -p third_party/devtools-frontend/src/third_party/esbuild
-            tar -xzf ${esbuild-bin} -C third_party/devtools-frontend/src/third_party/esbuild --strip-components=1
-            mv third_party/devtools-frontend/src/third_party/esbuild/bin/esbuild third_party/devtools-frontend/src/third_party/esbuild/esbuild
-          '';
+          # (Commented out - devtools frontend disabled)
+          # postPatch = base.postPatch + ''
+          #   mkdir -p third_party/devtools-frontend/src/third_party/esbuild
+          #   tar -xzf ${esbuild-bin} -C third_party/devtools-frontend/src/third_party/esbuild --strip-components=1
+          #   mv third_party/devtools-frontend/src/third_party/esbuild/bin/esbuild third_party/devtools-frontend/src/third_party/esbuild/esbuild
+          # '';
 
           # Single output (no sandbox needed for library)
           outputs = [ "out" ];
@@ -257,33 +207,31 @@ BUILDSCRIPT
           '';
         });
 
-        cloud-build = cloudBuildScript;
+        build = buildScript;
         default = self.packages.${system}.engine;
       };
 
       apps.${system} = {
-        cloud-build = {
+        build = {
           type = "app";
-          program = "${cloudBuildScript}/bin/axium-cloud-build";
+          program = "${buildScript}/bin/axium-build";
         };
+        default = self.apps.${system}.build;
       };
 
       devShells.${system}.default = pkgs.mkShell {
         packages = with pkgs; [
-          hcloud
-          cachix
-          jq
           openssh
+          tmux
         ];
 
         shellHook = ''
-          echo "Axium Engine"
+          echo "Axium Engine (stripped)"
           echo ""
+          echo "  nix run                - Build on server (stripped-engine branch)"
+          echo "  nix run .#build main   - Build specific branch"
           echo "  nix build              - Build locally"
-          echo "  nix run .#cloud-build  - Build on Hetzner"
           echo ""
-          echo "Required env vars for cloud build:"
-          echo "  HCLOUD_TOKEN, CACHIX_AUTH_TOKEN"
         '';
       };
     };

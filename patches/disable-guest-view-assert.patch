@@ -1,0 +1,13 @@
+diff --git a/components/guest_view/browser/BUILD.gn b/components/guest_view/browser/BUILD.gn
+index 7094ea5b97..017b26b81f 100644
+--- a/components/guest_view/browser/BUILD.gn
++++ b/components/guest_view/browser/BUILD.gn
+@@ -5,7 +5,7 @@ import("//components/guest_view/buildflags/buildflags.gni")
+ 
+ # Currently, GuestViews are only used by extensions, but we cannot
+ # depend on the extensions's gni define.
+-assert(enable_guest_view)
++# assert(enable_guest_view)  # Axium: disabled - we strip guest_view
+ 
+ static_library("browser") {
+   output_name = "guest_view_browser"
