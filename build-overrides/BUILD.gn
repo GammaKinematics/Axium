@@ -1,0 +1,22 @@
+# Axium Engine - Minimal root BUILD.gn
+# Only includes targets needed for content/ library build
+
+import("//build/config/features.gni")
+
+# Axium Engine: Minimal target set for content/ library
+group("gn_all") {
+  deps = [
+    "//content",
+    "//content:content_resources",
+    "//third_party/blink/public:resources",
+    "//ui/resources:ui_resources_grd",
+  ]
+}
+
+group("default") {
+  deps = [ ":gn_all" ]
+}
+
+group("all") {
+  deps = [ ":gn_all" ]
+}

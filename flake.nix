@@ -19,8 +19,7 @@
 
       enginePatches = [
         ./patches/compiler-optimizations.patch
-        ./patches/disable-guest-view-assert.patch
-        ./patches/disable-speech-service-assert.patch
+        # Note: Most assert patches no longer needed - minimal BUILD.gn avoids loading chrome/* targets
       ];
 
       # Fetch esbuild 0.25.1 binary to match devtools-frontend node_modules
@@ -116,13 +115,11 @@ REMOTE
           # Engine-specific GN flags
           gnFlags = engineGnFlags;
 
-          # Symlink esbuild where devtools-frontend expects it
-          # (Commented out - devtools frontend disabled)
-          # postPatch = base.postPatch + ''
-          #   mkdir -p third_party/devtools-frontend/src/third_party/esbuild
-          #   tar -xzf ${esbuild-bin} -C third_party/devtools-frontend/src/third_party/esbuild --strip-components=1
-          #   mv third_party/devtools-frontend/src/third_party/esbuild/bin/esbuild third_party/devtools-frontend/src/third_party/esbuild/esbuild
-          # '';
+          # Override root BUILD.gn with minimal version for content-only build
+          postPatch = (base.postPatch or "") + ''
+            echo "Replacing root BUILD.gn with Axium minimal version..."
+            cp ${./build-overrides/BUILD.gn} BUILD.gn
+          '';
 
           # Single output (no sandbox needed for library)
           outputs = [ "out" ];

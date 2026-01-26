@@ -40,9 +40,9 @@
   enable_on_device_translation = false;
 
   # === STRIPPED: Extensions/Plugins ===
-  enable_extensions = false;
+  # enable_extensions = false;  # KEEP - too many asserts (100+)
+  # enable_guest_view = false;  # KEEP - required by extensions (assert in extensions/common/BUILD.gn)
   enable_plugins = false;
-  enable_guest_view = false;
   enable_platform_apps = false;
 
   # === STRIPPED: Accessibility/Speech ===
