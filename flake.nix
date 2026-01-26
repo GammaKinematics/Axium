@@ -20,6 +20,7 @@
       enginePatches = [
         ./patches/compiler-optimizations.patch
         ./patches/disable-guest-view-assert.patch
+        ./patches/disable-speech-service-assert.patch
       ];
 
       # Fetch esbuild 0.25.1 binary to match devtools-frontend node_modules
