@@ -12,3 +12,17 @@ index 8056f7855e..902c13ddf3 100644
  
  source_set("cpp") {
    sources = [
+diff --git a/chrome/browser/on_device_translation/BUILD.gn b/chrome/browser/on_device_translation/BUILD.gn
+index c194537aa5..69198db36b 100644
+--- a/chrome/browser/on_device_translation/BUILD.gn
++++ b/chrome/browser/on_device_translation/BUILD.gn
+@@ -4,7 +4,8 @@
+ 
+ import("//components/services/on_device_translation/buildflags/features.gni")
+ 
+-assert(enable_on_device_translation)
++# Axium: Remove assert to allow building without on_device_translation
++# assert(enable_on_device_translation)
+ 
+ source_set("on_device_translation") {
+   sources = [
