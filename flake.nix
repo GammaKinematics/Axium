@@ -128,17 +128,8 @@ REMOTE
             echo "=== AXIUM: Done ==="
           '';
 
-          # DEBUG: Override configurePhase to dump GN dependency tree
-          configurePhase = let
-            gnArgsStr = pkgs.lib.concatStringsSep " " (pkgs.lib.mapAttrsToList (k: v:
-              "${k}=${if builtins.isBool v then (if v then "true" else "false") else if builtins.isString v then "\"${v}\"" else toString v}"
-            ) engineGnFlags);
-          in ''
-            runHook preConfigure
-
-            echo "=== AXIUM: Running gn gen ==="
-            gn gen --args=${pkgs.lib.escapeShellArg gnArgsStr} out/Release 2>&1 || true
-
+          # DEBUG: Dump GN dependency tree after configure
+          postConfigure = ''
             echo ""
             echo "=========================================="
             echo "=== DEPENDENCY TREE FOR //content ==="
