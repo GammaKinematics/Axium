@@ -1,0 +1,63 @@
+{
+  "nodes": {
+    "adblock-rust": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1769171048,
+        "narHash": "sha256-XRbPCE7h+QSRwUiedM+FFstnVcblrFPl5+Es2ER4SwA=",
+        "ref": "refs/heads/master",
+        "rev": "a8bcf36a496a7bfc120a1a8e03e8cfa36a48ddad",
+        "shallow": true,
+        "type": "git",
+        "url": "https://github.com/brave/adblock-rust"
+      },
+      "original": {
+        "shallow": true,
+        "type": "git",
+        "url": "https://github.com/brave/adblock-rust"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1769789167,
+        "narHash": "sha256-kKB3bqYJU5nzYeIROI82Ef9VtTbu4uA3YydSk/Bioa8=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "62c8382960464ceb98ea593cb8321a2cf8f9e3e5",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "adblock-rust": "adblock-rust",
+        "nixpkgs": "nixpkgs",
+        "webkit": "webkit"
+      }
+    },
+    "webkit": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1770046698,
+        "narHash": "sha256-LQl3R5WqRgyhHfjxE380yqiUeR7yDZUFLjeoMLgFxa8=",
+        "ref": "refs/heads/main",
+        "rev": "a9689a78cb4c05b6902ceaa39f6797bba727f136",
+        "shallow": true,
+        "type": "git",
+        "url": "https://github.com/WebKit/WebKit"
+      },
+      "original": {
+        "shallow": true,
+        "type": "git",
+        "url": "https://github.com/WebKit/WebKit"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
