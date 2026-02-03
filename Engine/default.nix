@@ -1,4 +1,18 @@
-{ pkgs, webkit }:
+{ pkgs, webkit,
+  # Compiler optimizations
+  optimize ? true,         # -O3
+  lto ? false,             # -flto (warning: very slow for WebKit)
+  march ? null,            # "native", "x86-64-v3", etc.
+  fastMath ? false,        # -ffast-math
+}:
+
+let
+  optFlags = pkgs.lib.optionals optimize [ "-O3" ]
+    ++ pkgs.lib.optionals (march != null) [ "-march=${march}" ]
+    ++ pkgs.lib.optionals fastMath [ "-ffast-math" ]
+    ++ pkgs.lib.optionals lto [ "-flto" ];
+  optFlagsStr = builtins.concatStringsSep " " optFlags;
+in
 
 pkgs.stdenv.mkDerivation {
   pname = "axium-engine";
@@ -86,6 +100,10 @@ pkgs.stdenv.mkDerivation {
     libbacktrace
     libsecret
   ];
+
+  env = pkgs.lib.optionalAttrs (optFlagsStr != "") {
+    NIX_CFLAGS_COMPILE = optFlagsStr;
+  };
 
   cmakeFlags = [
     "-DPORT=WPE"
