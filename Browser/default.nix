@@ -1,5 +1,10 @@
 { pkgs, lvgl }:
 
+let
+  # Generate UI code at Nix evaluation time
+  uiConfig = import ./UI/default.nix;
+  generatedUI = import ./UI/ui.nix { ui = uiConfig; };
+in
 pkgs.stdenv.mkDerivation {
   pname = "axium-browser";
   version = "0.1.0";
@@ -15,7 +20,6 @@ pkgs.stdenv.mkDerivation {
     lvgl
     pkgs.glfw
     pkgs.libGL
-    pkgs.glew
   ];
 
   buildPhase = ''
@@ -25,18 +29,14 @@ pkgs.stdenv.mkDerivation {
     cp ${lvgl}/lib/liblvgl.a lvgl/
     cp ${lvgl}/lib/liblvgl_thorvg.a lvgl/
 
-    # Debug
-    echo "=== Build directory ==="
-    pwd
-    ls -la
-    ls -la lvgl/
-    echo "=== lvgl.odin content (first 10 lines) ==="
-    head -10 lvgl/lvgl.odin
+    # Write generated UI code
+    mkdir -p UI
+    echo ${pkgs.lib.escapeShellArg generatedUI} > UI/ui.odin
 
     # Build with Odin - pass libraries directly (NixOS workaround)
     # Use absolute paths since clang runs from /build, not /build/Browser
     odin build . -out:axium -debug \
-      -extra-linker-flags:"$(pwd)/lvgl/liblvgl.a $(pwd)/lvgl/liblvgl_thorvg.a -L${pkgs.glfw}/lib -lglfw -lGL -lGLEW -lm -lstdc++"
+      -extra-linker-flags:"$(pwd)/lvgl/liblvgl.a $(pwd)/lvgl/liblvgl_thorvg.a -L${pkgs.glfw}/lib -lglfw -L${pkgs.libGL}/lib -lGL -lm -lstdc++"
   '';
 
   installPhase = ''

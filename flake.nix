@@ -34,7 +34,17 @@
         tinyTtf = false;  # Disable for now - use built-in Montserrat fonts
         odinBindings = true;
         logging = true;  # Enable logging to debug rendering
-        logLevel = "WARN";  # TRACE, INFO, WARN, ERROR, USER, NONE
+        logLevel = "INFO";  # TRACE, INFO, WARN, ERROR, USER, NONE
+        # Use GLFW + OpenGL for GL context, but SW rendering for widgets
+        # This gives us: EGL context for WebKit texture import + working SW widget rendering
+        glfw = true;
+        x11 = false;
+        sdl = false;
+        opengl = true;       # LV_USE_OPENGLES = 1 (GL context + texture APIs)
+        openglDraw = false;  # LV_USE_DRAW_OPENGLES = 0 (use SW for widget drawing)
+        # Theme - uses nix-generated theme
+        darkMode = true;
+        # customTheme = {};  # Override default theme values here if needed
       });
 
     in {
