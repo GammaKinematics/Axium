@@ -71,7 +71,7 @@ State :: struct {
 ${callbackImpls}
 
 // Build the UI
-build_ui :: proc(screen: ^lvgl.lv_obj_t, state: ^State) {
+build_ui :: proc(screen: ^lvgl.lv_obj_t, keyboard_group: ^lvgl.lv_group_t, state: ^State) {
 ${layoutBody}
 }
 ''

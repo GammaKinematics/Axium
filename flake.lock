@@ -23,8 +23,8 @@
         "nixpkgs": "nixpkgs"
       },
       "locked": {
-        "lastModified": 1770221207,
-        "narHash": "sha256-o7FJd44NO1yJFJ+0n0xrgDK/2nYNk7w9ToczGkLPvl8=",
+        "lastModified": 1770226744,
+        "narHash": "sha256-QCxy+AzUHHe9rKQfYHlWh4zBpNV7Lyg6sFpcoPMBg14=",
         "path": "/data/Browser/LVGL-Nix",
         "type": "path"
       },

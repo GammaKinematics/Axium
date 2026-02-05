@@ -31,6 +31,7 @@
             lvgl.lv_textarea_set_placeholder_text(url_bar, "Enter URL...")
             lvgl.lv_obj_add_event_cb(url_bar, on_url_submit, .LV_EVENT_READY, nil)
             lvgl.lv_obj_add_event_cb(url_bar, on_url_focus, .LV_EVENT_FOCUSED, nil)
+            lvgl.lv_group_add_obj(keyboard_group, url_bar)
             state.url_input = url_bar
         }'';
 }

@@ -23,6 +23,9 @@ WindowState :: struct {
 
     // UI state (preserved across resizes)
     ui_state: UI.State,
+
+    // Keyboard input
+    keyboard: KeyboardState,
 }
 
 // Initialize window - creates GLFW window and initial texture
@@ -50,6 +53,11 @@ init_window :: proc(state: ^WindowState, width, height: i32, title: cstring) -> 
 
     // Create UI texture with actual framebuffer dimensions
     if !create_ui_texture(state, state.width, state.height) {
+        return false
+    }
+
+    // Initialize keyboard input
+    if !init_keyboard(&state.keyboard, state.glfw_window, state.ui_disp) {
         return false
     }
 
@@ -81,7 +89,7 @@ create_ui_texture :: proc(state: ^WindowState, width, height: i32) -> bool {
 build_ui :: proc(state: ^WindowState) {
     screen := lvgl.lv_display_get_screen_active(state.ui_disp)
     if screen != nil {
-        UI.build_ui(screen, &state.ui_state)
+        UI.build_ui(screen, state.keyboard.group, &state.ui_state)
     }
 }
 
