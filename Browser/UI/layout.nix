@@ -2,6 +2,7 @@
 # Only generates the build_ui proc body - ui.nix handles assembly
 { ui
 , widgetsDir ? ./Widgets
+, theme ? {}
 }:
 let
   lib = builtins;
@@ -20,7 +21,7 @@ let
 
   # Render edges
   renderEdge = container: orientation:
-    edge { inherit container orientation widgetsDir; };
+    edge { inherit container orientation widgetsDir theme; };
 
   topEdges = lib.concatStringsSep "\n" (map (c: renderEdge c "horizontal") topContainers);
   bottomEdges = lib.concatStringsSep "\n" (map (c: renderEdge c "horizontal") bottomContainers);
@@ -50,12 +51,10 @@ ${if hasTop then "    // Top edge\n${topEdges}" else ""}
         parent := middle
 ${if hasLeft then "        // Left edge\n${leftEdges}" else ""}
 
-        // Content area (black background for WebKit)
+        // Content area (transparent — web content GL texture shows through)
         content := lvgl.lv_obj_create(parent)
         lvgl.lv_obj_set_height(content, lvgl.lv_pct(100))
         lvgl.lv_obj_set_flex_grow(content, 1)
-        lvgl.lv_obj_set_style_bg_color(content, lvgl.lv_color_hex(0x000000), 0)
-        lvgl.lv_obj_set_style_bg_opa(content, lvgl.LV_OPA_COVER, 0)
         lvgl.lv_obj_remove_flag(content, .LV_OBJ_FLAG_SCROLLABLE)
 
 ${if hasRight then "        // Right edge\n${rightEdges}" else ""}

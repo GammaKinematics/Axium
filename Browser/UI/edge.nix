@@ -3,9 +3,12 @@
 { container
 , orientation ? "horizontal"
 , widgetsDir ? ./Widgets
+, theme ? {}
 }:
 let
   lib = builtins;
+  colors = theme.colors or {};
+  edgeBg = colors.bg_prim or "282b30";
 
   # Import widget by name: "back" → Widgets/back.nix
   # Widgets return { callbacks, render }, we extract render
@@ -62,6 +65,8 @@ in
         lvgl.lv_obj_set_style_pad_left(edge_container, 10, 0)
         lvgl.lv_obj_set_style_pad_right(edge_container, 10, 0)
         lvgl.lv_obj_set_style_pad_column(edge_container, 10, 0)
+        lvgl.lv_obj_set_style_bg_color(edge_container, lvgl.lv_color_hex(0x${edgeBg}), 0)
+        lvgl.lv_obj_set_style_bg_opa(edge_container, lvgl.LV_OPA_COVER, 0)
         lvgl.lv_obj_remove_flag(edge_container, .LV_OBJ_FLAG_SCROLLABLE)
 
 ${if hasStart then renderZone startZone else ""}

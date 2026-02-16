@@ -19,10 +19,16 @@ main :: proc() {
 
     build_ui(&window)
 
+    // Load a default page if engine is ready
+    if window.engine_ready {
+        axium_engine_load_uri("data:text/html,<body style='background:red'><h1 style='color:white;font-size:72px'>HELLO AXIUM</h1></body>")
+    }
+
     fmt.println("Starting main loop...")
 
     for {
         check_resize(&window)
+        update_web_texture(&window)
         lvgl.lv_timer_handler()
         time.sleep(16 * time.Millisecond)
     }

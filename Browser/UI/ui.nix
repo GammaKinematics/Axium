@@ -2,12 +2,13 @@
 # Collects callbacks from widgets and generates Callbacks struct + implementations
 { ui ? import ./default.nix
 , widgetsDir ? ./Widgets
+, theme ? {}
 }:
 let
   lib = builtins;
 
   # Get layout body from layout.nix
-  layoutBody = import ./layout.nix { inherit ui widgetsDir; };
+  layoutBody = import ./layout.nix { inherit ui widgetsDir theme; };
 
   # Collect all widget names from UI config
   getZoneWidgets = container: orientation:

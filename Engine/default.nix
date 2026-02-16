@@ -1,6 +1,6 @@
 { pkgs, webkit,
   # Compiler optimizations
-  optimize ? true,         # -O3
+  optimize ? false,        # -O3 (disabled for debug build)
   lto ? false,             # -flto (warning: very slow for WebKit)
   march ? null,            # "native", "x86-64-v3", etc.
   fastMath ? false,        # -ffast-math
@@ -107,7 +107,8 @@ pkgs.stdenv.mkDerivation {
 
   cmakeFlags = [
     "-DPORT=WPE"
-    "-DCMAKE_BUILD_TYPE=Release"
+    "-DCMAKE_BUILD_TYPE=RelWithDebInfo"
+    "-DENABLE_ASSERTS=ON"
 
     # WPE2 Platform API only (no legacy)
     "-DENABLE_WPE_PLATFORM=ON"
@@ -133,7 +134,6 @@ pkgs.stdenv.mkDerivation {
     "-DENABLE_BUBBLEWRAP_SANDBOX=ON"
     "-DENABLE_JOURNALD_LOG=OFF"
     "-DUSE_SYSPROF_CAPTURE=OFF"
-    "-DDEVELOPER_MODE=OFF"
   ];
 
   enableParallelBuilding = true;

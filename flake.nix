@@ -51,10 +51,14 @@
       packages.${system} = rec {
         inherit lvgl;
 
-        engine = import ./Engine ({
+        engine = import ./Engine {
           inherit pkgs webkit;
-          lto = false;  # Skip LTO for WebKit - too memory intensive
-        } // optDefaults);
+          # Debug build - no optimizations
+          optimize = false;
+          march = null;
+          fastMath = false;
+          lto = false;
+        };
 
         adblock = import ./Adblock {
           inherit pkgs adblock-rust;
@@ -62,7 +66,8 @@
 
         # Bindings are now included in lvgl/odin/
         browser = import ./Browser {
-          inherit pkgs lvgl;
+          inherit pkgs lvgl engine;
+          theme = lvgl.theme;
         };
 
         default = browser;

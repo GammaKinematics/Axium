@@ -1,0 +1,547 @@
+// WPE2 Engine Shim - GObject subclasses + DMA-BUF import
+// Provides a simple C API for the Odin browser to drive WebKit
+
+#include "wpe_shim.h"
+
+#include <wpe/wpe-platform.h>
+#include <wpe/webkit.h>
+
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <GL/gl.h>
+#include <gbm.h>
+
+#include <fcntl.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+
+// GL_OES_EGL_image extension
+#ifndef GL_OES_EGL_image
+typedef void* GLeglImageOES;
+#endif
+typedef void (*PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)(GLenum target, GLeglImageOES image);
+static PFNGLEGLIMAGETARGETTEXTURE2DOESPROC pfn_glEGLImageTargetTexture2DOES = NULL;
+
+// ---------------------------------------------------------------------------
+// Forward declarations
+// ---------------------------------------------------------------------------
+static GType axium_display_get_type(void);
+static GType axium_view_get_type(void);
+static GType axium_toplevel_get_type(void);
+
+#define AXIUM_TYPE_DISPLAY  (axium_display_get_type())
+#define AXIUM_TYPE_VIEW     (axium_view_get_type())
+#define AXIUM_TYPE_TOPLEVEL (axium_toplevel_get_type())
+#define AXIUM_DISPLAY(obj)  (G_TYPE_CHECK_INSTANCE_CAST((obj), AXIUM_TYPE_DISPLAY, AxiumDisplay))
+#define AXIUM_VIEW(obj)     (G_TYPE_CHECK_INSTANCE_CAST((obj), AXIUM_TYPE_VIEW, AxiumView))
+#define AXIUM_TOPLEVEL(obj) (G_TYPE_CHECK_INSTANCE_CAST((obj), AXIUM_TYPE_TOPLEVEL, AxiumToplevel))
+
+// ---------------------------------------------------------------------------
+// AxiumDisplay
+// ---------------------------------------------------------------------------
+typedef struct _AxiumDisplay AxiumDisplay;
+typedef struct _AxiumDisplayClass AxiumDisplayClass;
+
+struct _AxiumDisplay {
+    WPEDisplay parent_instance;
+    int drm_fd;
+    struct gbm_device* gbm_device;
+    EGLDisplay egl_display;
+    bool egl_initialized;
+};
+
+struct _AxiumDisplayClass {
+    WPEDisplayClass parent_class;
+};
+
+G_DEFINE_TYPE(AxiumDisplay, axium_display, WPE_TYPE_DISPLAY)
+
+static gboolean axium_display_connect(WPEDisplay* display, GError** error)
+{
+    AxiumDisplay* self = AXIUM_DISPLAY(display);
+
+    // Open DRM render node
+    self->drm_fd = open("/dev/dri/renderD128", O_RDWR | O_CLOEXEC);
+    if (self->drm_fd < 0) {
+        g_set_error_literal(error, WPE_DISPLAY_ERROR, WPE_DISPLAY_ERROR_CONNECTION_FAILED,
+                            "Failed to open /dev/dri/renderD128");
+        return FALSE;
+    }
+
+    // Create GBM device
+    self->gbm_device = gbm_create_device(self->drm_fd);
+    if (!self->gbm_device) {
+        g_set_error_literal(error, WPE_DISPLAY_ERROR, WPE_DISPLAY_ERROR_CONNECTION_FAILED,
+                            "Failed to create GBM device");
+        close(self->drm_fd);
+        self->drm_fd = -1;
+        return FALSE;
+    }
+
+    // Create EGL display from GBM
+    self->egl_display = eglGetPlatformDisplay(EGL_PLATFORM_GBM_KHR,
+                                               self->gbm_device, NULL);
+    if (self->egl_display == EGL_NO_DISPLAY) {
+        // Fallback: try EXT variant
+        PFNEGLGETPLATFORMDISPLAYEXTPROC eglGetPlatformDisplayEXT =
+            (PFNEGLGETPLATFORMDISPLAYEXTPROC)eglGetProcAddress("eglGetPlatformDisplayEXT");
+        if (eglGetPlatformDisplayEXT)
+            self->egl_display = eglGetPlatformDisplayEXT(EGL_PLATFORM_GBM_KHR,
+                                                          self->gbm_device, NULL);
+    }
+
+    if (self->egl_display == EGL_NO_DISPLAY) {
+        g_set_error_literal(error, WPE_DISPLAY_ERROR, WPE_DISPLAY_ERROR_CONNECTION_FAILED,
+                            "Failed to get EGL display from GBM device");
+        gbm_device_destroy(self->gbm_device);
+        self->gbm_device = NULL;
+        close(self->drm_fd);
+        self->drm_fd = -1;
+        return FALSE;
+    }
+
+    EGLint major, minor;
+    if (!eglInitialize(self->egl_display, &major, &minor)) {
+        g_set_error_literal(error, WPE_DISPLAY_ERROR, WPE_DISPLAY_ERROR_CONNECTION_FAILED,
+                            "Failed to initialize EGL display");
+        self->egl_display = EGL_NO_DISPLAY;
+        gbm_device_destroy(self->gbm_device);
+        self->gbm_device = NULL;
+        close(self->drm_fd);
+        self->drm_fd = -1;
+        return FALSE;
+    }
+
+    self->egl_initialized = true;
+    fprintf(stderr, "[axium-engine] EGL %d.%d initialized on GBM device\n", major, minor);
+
+    return TRUE;
+}
+
+static gpointer axium_display_get_egl_display(WPEDisplay* display, GError** error)
+{
+    AxiumDisplay* self = AXIUM_DISPLAY(display);
+    if (self->egl_display == EGL_NO_DISPLAY) {
+        g_set_error_literal(error, WPE_EGL_ERROR, WPE_EGL_ERROR_NOT_AVAILABLE,
+                            "EGL display not available");
+        return NULL;
+    }
+    return self->egl_display;
+}
+
+static WPEView* axium_display_create_view(WPEDisplay* display)
+{
+    return WPE_VIEW(g_object_new(AXIUM_TYPE_VIEW, "display", display, NULL));
+}
+
+static WPEToplevel* axium_display_create_toplevel(WPEDisplay* display, guint max_views)
+{
+    return WPE_TOPLEVEL(g_object_new(AXIUM_TYPE_TOPLEVEL, "display", display, NULL));
+}
+
+static void axium_display_dispose(GObject* object)
+{
+    AxiumDisplay* self = AXIUM_DISPLAY(object);
+
+    if (self->egl_initialized && self->egl_display != EGL_NO_DISPLAY) {
+        eglTerminate(self->egl_display);
+        self->egl_display = EGL_NO_DISPLAY;
+        self->egl_initialized = false;
+    }
+    if (self->gbm_device) {
+        gbm_device_destroy(self->gbm_device);
+        self->gbm_device = NULL;
+    }
+    if (self->drm_fd >= 0) {
+        close(self->drm_fd);
+        self->drm_fd = -1;
+    }
+
+    G_OBJECT_CLASS(axium_display_parent_class)->dispose(object);
+}
+
+static void axium_display_class_init(AxiumDisplayClass* klass)
+{
+    GObjectClass* object_class = G_OBJECT_CLASS(klass);
+    object_class->dispose = axium_display_dispose;
+
+    WPEDisplayClass* display_class = WPE_DISPLAY_CLASS(klass);
+    display_class->connect = axium_display_connect;
+    display_class->get_egl_display = axium_display_get_egl_display;
+    display_class->create_view = axium_display_create_view;
+    display_class->create_toplevel = axium_display_create_toplevel;
+}
+
+static void axium_display_init(AxiumDisplay* self)
+{
+    self->drm_fd = -1;
+    self->gbm_device = NULL;
+    self->egl_display = EGL_NO_DISPLAY;
+    self->egl_initialized = false;
+}
+
+// ---------------------------------------------------------------------------
+// AxiumView
+// ---------------------------------------------------------------------------
+typedef struct _AxiumView AxiumView;
+typedef struct _AxiumViewClass AxiumViewClass;
+
+struct _AxiumView {
+    WPEView parent_instance;
+    WPEBuffer* pending_buffer;
+    WPEBuffer* committed_buffer;
+    bool has_new_frame;
+};
+
+struct _AxiumViewClass {
+    WPEViewClass parent_class;
+};
+
+G_DEFINE_TYPE(AxiumView, axium_view, WPE_TYPE_VIEW)
+
+static gboolean axium_view_render_buffer(WPEView* view, WPEBuffer* buffer,
+                                          const WPERectangle* damage_rects,
+                                          guint n_damage_rects, GError** error)
+{
+    AxiumView* self = AXIUM_VIEW(view);
+
+    int w = wpe_buffer_get_width(buffer);
+    int h = wpe_buffer_get_height(buffer);
+    fprintf(stderr, "[axium-engine] render_buffer called: %dx%d, %u damage rects\n",
+            w, h, n_damage_rects);
+
+    // Store new pending buffer
+    if (self->pending_buffer)
+        g_object_unref(self->pending_buffer);
+    self->pending_buffer = g_object_ref(buffer);
+    self->has_new_frame = true;
+
+    return TRUE;
+}
+
+static void on_toplevel_changed(WPEView* view, GParamSpec* pspec, gpointer data)
+{
+    WPEToplevel* toplevel = wpe_view_get_toplevel(view);
+    if (!toplevel) {
+        fprintf(stderr, "[axium-engine] toplevel changed: NULL, unmapping view\n");
+        wpe_view_unmap(view);
+        return;
+    }
+
+    int width, height;
+    wpe_toplevel_get_size(toplevel, &width, &height);
+    fprintf(stderr, "[axium-engine] toplevel changed: %dx%d, mapping view\n", width, height);
+    if (width && height)
+        wpe_view_resized(view, width, height);
+
+    wpe_view_map(view);
+    fprintf(stderr, "[axium-engine] view mapped: %d\n", wpe_view_get_mapped(view));
+}
+
+static void axium_view_constructed(GObject* object)
+{
+    G_OBJECT_CLASS(axium_view_parent_class)->constructed(object);
+    g_signal_connect(WPE_VIEW(object), "notify::toplevel",
+                     G_CALLBACK(on_toplevel_changed), NULL);
+}
+
+static void axium_view_dispose(GObject* object)
+{
+    AxiumView* self = AXIUM_VIEW(object);
+
+    g_clear_object(&self->pending_buffer);
+    g_clear_object(&self->committed_buffer);
+
+    G_OBJECT_CLASS(axium_view_parent_class)->dispose(object);
+}
+
+static void axium_view_class_init(AxiumViewClass* klass)
+{
+    GObjectClass* object_class = G_OBJECT_CLASS(klass);
+    object_class->constructed = axium_view_constructed;
+    object_class->dispose = axium_view_dispose;
+
+    WPEViewClass* view_class = WPE_VIEW_CLASS(klass);
+    view_class->render_buffer = axium_view_render_buffer;
+}
+
+static void axium_view_init(AxiumView* self)
+{
+    self->pending_buffer = NULL;
+    self->committed_buffer = NULL;
+    self->has_new_frame = false;
+}
+
+// ---------------------------------------------------------------------------
+// AxiumToplevel
+// ---------------------------------------------------------------------------
+typedef struct _AxiumToplevel AxiumToplevel;
+typedef struct _AxiumToplevelClass AxiumToplevelClass;
+
+struct _AxiumToplevel {
+    WPEToplevel parent_instance;
+};
+
+struct _AxiumToplevelClass {
+    WPEToplevelClass parent_class;
+};
+
+G_DEFINE_TYPE(AxiumToplevel, axium_toplevel, WPE_TYPE_TOPLEVEL)
+
+static gboolean resize_view_cb(WPEToplevel* tl, WPEView* view, gpointer data)
+{
+    int w, h;
+    wpe_toplevel_get_size(tl, &w, &h);
+    wpe_view_resized(view, w, h);
+    return FALSE; // continue iteration
+}
+
+static gboolean axium_toplevel_resize(WPEToplevel* toplevel, int width, int height)
+{
+    wpe_toplevel_resized(toplevel, width, height);
+    wpe_toplevel_foreach_view(toplevel, resize_view_cb, NULL);
+    return TRUE;
+}
+
+static void axium_toplevel_constructed(GObject* object)
+{
+    G_OBJECT_CLASS(axium_toplevel_parent_class)->constructed(object);
+    wpe_toplevel_state_changed(WPE_TOPLEVEL(object), WPE_TOPLEVEL_STATE_ACTIVE);
+}
+
+static void axium_toplevel_class_init(AxiumToplevelClass* klass)
+{
+    GObjectClass* object_class = G_OBJECT_CLASS(klass);
+    object_class->constructed = axium_toplevel_constructed;
+
+    WPEToplevelClass* toplevel_class = WPE_TOPLEVEL_CLASS(klass);
+    toplevel_class->resize = axium_toplevel_resize;
+}
+
+static void axium_toplevel_init(AxiumToplevel* self)
+{
+}
+
+// ---------------------------------------------------------------------------
+// Engine state
+// ---------------------------------------------------------------------------
+static WPEDisplay*      g_display  = NULL;
+static WebKitWebView*   g_web_view = NULL;
+static unsigned int      g_gl_texture = 0;
+
+// Get our custom view from the WebKitWebView
+static AxiumView* get_axium_view(void)
+{
+    if (!g_web_view) return NULL;
+    WPEView* wpe_view = webkit_web_view_get_wpe_view(g_web_view);
+    if (!wpe_view) return NULL;
+    if (!g_type_is_a(G_OBJECT_TYPE(wpe_view), AXIUM_TYPE_VIEW)) return NULL;
+    return AXIUM_VIEW(wpe_view);
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+bool axium_engine_init(void)
+{
+    // Load GL extension for EGLImage → texture import
+    pfn_glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)
+        eglGetProcAddress("glEGLImageTargetTexture2DOES");
+
+    // Create and connect our custom display
+    g_display = WPE_DISPLAY(g_object_new(AXIUM_TYPE_DISPLAY, NULL));
+    GError* error = NULL;
+    if (!wpe_display_connect(g_display, &error)) {
+        fprintf(stderr, "[axium-engine] Failed to connect display: %s\n",
+                error ? error->message : "unknown");
+        g_clear_error(&error);
+        g_clear_object(&g_display);
+        return false;
+    }
+
+    fprintf(stderr, "[axium-engine] Display connected\n");
+    return true;
+}
+
+bool axium_engine_create_view(int width, int height)
+{
+    if (!g_display) return false;
+
+    // Create WebKitWebView — pass our display explicitly so WebKit uses it
+    // (wpe_display_get_default() uses GIO extension points, not our custom display)
+    g_web_view = WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW,
+                                               "display", g_display, NULL));
+    if (!g_web_view) {
+        fprintf(stderr, "[axium-engine] Failed to create WebKitWebView\n");
+        return false;
+    }
+
+    // Get the WPE view (created through our display's create_view)
+    WPEView* wpe_view = webkit_web_view_get_wpe_view(g_web_view);
+    if (!wpe_view) {
+        fprintf(stderr, "[axium-engine] No WPE view on WebKitWebView\n");
+        g_clear_object(&g_web_view);
+        return false;
+    }
+
+    // Resize the toplevel which propagates to the view
+    WPEToplevel* toplevel = wpe_view_get_toplevel(wpe_view);
+    if (toplevel)
+        wpe_toplevel_resize(toplevel, width, height);
+
+    fprintf(stderr, "[axium-engine] WebView created (%dx%d)\n", width, height);
+    return true;
+}
+
+void axium_engine_load_uri(const char* uri)
+{
+    if (!g_web_view) return;
+    webkit_web_view_load_uri(g_web_view, uri);
+    fprintf(stderr, "[axium-engine] Loading: %s\n", uri);
+}
+
+void axium_engine_resize(int width, int height)
+{
+    if (!g_web_view) return;
+    WPEView* wpe_view = webkit_web_view_get_wpe_view(g_web_view);
+    if (!wpe_view) return;
+    WPEToplevel* toplevel = wpe_view_get_toplevel(wpe_view);
+    if (toplevel)
+        wpe_toplevel_resize(toplevel, width, height);
+}
+
+void axium_engine_pump(void)
+{
+    // Drain all pending GLib events — WebKit needs many iterations
+    // for IPC, web process startup, rendering, etc.
+    while (g_main_context_iteration(NULL, FALSE)) {
+        // keep draining
+    }
+}
+
+bool axium_engine_has_new_frame(void)
+{
+    AxiumView* view = get_axium_view();
+    return view && view->has_new_frame;
+}
+
+unsigned int axium_engine_get_texture_id(void)
+{
+    AxiumView* view = get_axium_view();
+    if (!view || !view->pending_buffer)
+        return g_gl_texture;
+
+    WPEBuffer* buffer = view->pending_buffer;
+
+    // Try zero-copy: DMA-BUF → EGLImage → GL texture
+    GError* error = NULL;
+    EGLImageKHR egl_image = (EGLImageKHR)wpe_buffer_import_to_egl_image(buffer, &error);
+
+    if (egl_image && pfn_glEGLImageTargetTexture2DOES) {
+        // Zero-copy path
+        if (!g_gl_texture)
+            glGenTextures(1, &g_gl_texture);
+        glBindTexture(GL_TEXTURE_2D, g_gl_texture);
+        pfn_glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, (GLeglImageOES)egl_image);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        fprintf(stderr, "[axium-engine] Frame imported via EGLImage (tex=%u)\n", g_gl_texture);
+    } else {
+        // Fallback: pixel copy (SHM)
+        if (error)
+            fprintf(stderr, "[axium-engine] EGLImage import failed: %s\n", error->message);
+        else
+            fprintf(stderr, "[axium-engine] EGLImage not available, trying SHM\n");
+        g_clear_error(&error);
+        GBytes* pixels = wpe_buffer_import_to_pixels(buffer, &error);
+        if (pixels) {
+            int w = wpe_buffer_get_width(buffer);
+            int h = wpe_buffer_get_height(buffer);
+            gsize pixel_size = 0;
+            const uint8_t* pixel_data = g_bytes_get_data(pixels, &pixel_size);
+
+            // Log first 16 bytes of pixel data to verify content
+            fprintf(stderr, "[axium-engine] SHM pixels: size=%zu, first 16 bytes:", pixel_size);
+            for (int i = 0; i < 16 && i < (int)pixel_size; i++)
+                fprintf(stderr, " %02x", pixel_data[i]);
+            fprintf(stderr, "\n");
+
+            // Check if all zeros (blank frame)
+            int nonzero = 0;
+            for (int i = 0; i < (int)pixel_size && i < 1024; i++) {
+                if (pixel_data[i] != 0) { nonzero = 1; break; }
+            }
+            fprintf(stderr, "[axium-engine] Frame content: %s\n",
+                    nonzero ? "has data" : "ALL ZEROS (blank)");
+
+            if (!g_gl_texture)
+                glGenTextures(1, &g_gl_texture);
+            glBindTexture(GL_TEXTURE_2D, g_gl_texture);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0,
+                         GL_BGRA, GL_UNSIGNED_BYTE, pixel_data);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+            GLenum gl_err = glGetError();
+            if (gl_err != GL_NO_ERROR)
+                fprintf(stderr, "[axium-engine] glTexImage2D error: 0x%04x\n", gl_err);
+
+            g_bytes_unref(pixels);
+            fprintf(stderr, "[axium-engine] Frame imported via SHM (%dx%d, tex=%u)\n",
+                    w, h, g_gl_texture);
+        } else {
+            fprintf(stderr, "[axium-engine] SHM import also failed: %s\n",
+                    error ? error->message : "unknown");
+        }
+        g_clear_error(&error);
+    }
+
+    // Release old committed buffer, promote pending
+    if (view->committed_buffer) {
+        wpe_view_buffer_released(WPE_VIEW(view), view->committed_buffer);
+        g_object_unref(view->committed_buffer);
+    }
+    view->committed_buffer = view->pending_buffer;
+    view->pending_buffer = NULL;
+    view->has_new_frame = false;
+
+    // Tell WebKit we displayed this buffer
+    wpe_view_buffer_rendered(WPE_VIEW(view), view->committed_buffer);
+
+    return g_gl_texture;
+}
+
+void axium_engine_get_frame_size(int* width, int* height)
+{
+    *width = 0;
+    *height = 0;
+    if (!g_web_view) return;
+    WPEView* wpe_view = webkit_web_view_get_wpe_view(g_web_view);
+    if (!wpe_view) return;
+    *width = wpe_view_get_width(wpe_view);
+    *height = wpe_view_get_height(wpe_view);
+}
+
+void axium_engine_shutdown(void)
+{
+    if (g_gl_texture) {
+        glDeleteTextures(1, &g_gl_texture);
+        g_gl_texture = 0;
+    }
+
+    AxiumView* view = get_axium_view();
+    if (view) {
+        g_clear_object(&view->pending_buffer);
+        if (view->committed_buffer) {
+            wpe_view_buffer_released(WPE_VIEW(view), view->committed_buffer);
+            g_clear_object(&view->committed_buffer);
+        }
+    }
+
+    g_clear_object(&g_web_view);
+    g_clear_object(&g_display);
+
+    fprintf(stderr, "[axium-engine] Shutdown complete\n");
+}
