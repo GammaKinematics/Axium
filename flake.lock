@@ -29,6 +29,18 @@
         "type": "path"
       }
     },
+    "font-onix": {
+      "locked": {
+        "lastModified": 1771265807,
+        "narHash": "sha256-pbelrrZYqKNkJZJ/bCHtWajN4VYdGa2KTWAxU5/Lp1A=",
+        "path": "/data/Browser/Font-Onix",
+        "type": "path"
+      },
+      "original": {
+        "path": "/data/Browser/Font-Onix",
+        "type": "path"
+      }
+    },
     "lvgl-onix": {
       "inputs": {
         "lvgl-src": "lvgl-src",
@@ -37,8 +49,8 @@
         ]
       },
       "locked": {
-        "lastModified": 1771630668,
-        "narHash": "sha256-azFcpJsW97rc8G0ds4pGzM2DKmIsnx2fyHDEfo9uefY=",
+        "lastModified": 1771659189,
+        "narHash": "sha256-5rkqYKifF3NNUkkUnCru9/PbL7R9tiGdMvKVz25wh9U=",
         "path": "/data/Browser/LVGL-Onix",
         "type": "path"
       },
@@ -84,6 +96,7 @@
       "inputs": {
         "bindings-onix": "bindings-onix",
         "display-onix": "display-onix",
+        "font-onix": "font-onix",
         "lvgl-onix": "lvgl-onix",
         "nixpkgs": "nixpkgs",
         "theme-onix": "theme-onix",

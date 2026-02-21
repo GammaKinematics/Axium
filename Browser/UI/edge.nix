@@ -3,12 +3,10 @@
 { container
 , orientation ? "horizontal"
 , widgetsDir ? ./Widgets
-, theme ? {}
+, edgeName ? null
 }:
 let
   lib = builtins;
-  colors = theme.colors or {};
-  edgeBg = colors.bg_prim or "282b30";
 
   # Import widget by name: "back" → Widgets/back.nix
   # Widgets return { callbacks, render }, we extract render
@@ -62,10 +60,10 @@ in
         lv_obj_set_height(edge_container, ${if orientation == "horizontal" then toString sizeValue else "lv_pct(100)"})
         lv_obj_set_flex_flow(edge_container, ${flexFlow})
         lv_obj_set_flex_align(edge_container, .LV_FLEX_ALIGN_START, .LV_FLEX_ALIGN_CENTER, .LV_FLEX_ALIGN_CENTER)
-        lv_obj_set_style_pad_left(edge_container, 10, 0)
-        lv_obj_set_style_pad_right(edge_container, 10, 0)
-        lv_obj_set_style_pad_column(edge_container, 10, 0)
-        lv_obj_set_style_bg_color(edge_container, lv_color_hex(0x${edgeBg}), 0)
+        lv_obj_set_style_pad_left(edge_container, theme_padding, 0)
+        lv_obj_set_style_pad_right(edge_container, theme_padding, 0)
+        lv_obj_set_style_pad_column(edge_container, theme_gap, 0)
+        lv_obj_set_style_bg_color(edge_container, lv_color_hex(theme_bg_prim), 0)
         lv_obj_set_style_bg_opa(edge_container, LV_OPA_COVER, 0)
         lv_obj_remove_flag(edge_container, .LV_OBJ_FLAG_SCROLLABLE)
 
@@ -74,4 +72,5 @@ ${spacer}
 ${if hasCenter then renderZone centerZone else ""}
 ${spacer}
 ${if hasEnd then renderZone endZone else ""}
+${if edgeName != null then "        ${edgeName} = edge_container" else ""}
     }''

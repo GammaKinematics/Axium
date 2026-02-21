@@ -1,5 +1,5 @@
 { pkgs, engine, display-onix, generatedBindings
-, lvgl, lvglBindings, themeOdin, generatedUI
+, lvgl, lvglBindings, themeOdin, fontOdin, font-onix, generatedUI
 }:
 
 let
@@ -25,7 +25,7 @@ pkgs.stdenv.mkDerivation {
     pkgs.libsoup_3      # required by wpe-webkit-2.0.pc
     pkgs.libxkbcommon   # WPEKeymapXKB.h
     pkgs.libglvnd       # EGL headers + libs
-  ] ++ displayDeps ++ lvgl.passthru.deps;
+  ] ++ displayDeps ++ lvgl.passthru.deps ++ (font-onix.lib.deps pkgs);
 
   buildPhase = ''
     # Copy Display-Onix backend source
@@ -37,9 +37,10 @@ pkgs.stdenv.mkDerivation {
     # Copy generated bindings
     cp ${generatedBindings} ./bindings.odin
 
-    # Copy LVGL bindings, theme, and UI
+    # Copy LVGL bindings, theme, font, and UI
     cp ${lvglBindings} ./lvgl.odin
     cp ${themeOdin} ./theme_gen.odin
+    cp ${fontOdin} ./font_gen.odin
     cp ${generatedUI} ./ui.odin
 
     # Compile WPE2 C shim
@@ -56,6 +57,7 @@ pkgs.stdenv.mkDerivation {
         ${lvgl}/lib/liblvgl.a \
         ${lvgl.passthru.linkFlags} \
         $(pkg-config --libs wpe-webkit-2.0 wpe-platform-2.0 glib-2.0 gobject-2.0) \
+        ${font-onix.lib.linkFlags pkgs} \
         -lm -lstdc++"
   '';
 

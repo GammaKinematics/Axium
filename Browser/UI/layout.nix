@@ -2,7 +2,6 @@
 # Only generates the build_ui proc body - ui.nix handles assembly
 { ui
 , widgetsDir ? ./Widgets
-, theme ? {}
 }:
 let
   lib = builtins;
@@ -19,14 +18,23 @@ let
   hasLeft = leftContainers != [];
   hasRight = rightContainers != [];
 
-  # Render edges
-  renderEdge = container: orientation:
-    edge { inherit container orientation widgetsDir theme; };
+  # Render edges with named globals and optional hidden start
+  renderEdges = side: containers: orientation:
+    let n = lib.length containers;
+    in lib.concatStringsSep "\n" (lib.genList (i:
+      let
+        container = lib.elemAt containers i;
+        edgeName = "edge_${side}_${toString i}";
+        show = container.show or "always";
+      in
+        (edge { inherit container orientation widgetsDir edgeName; })
+        + (if show != "always" then "\n    lv_obj_add_flag(${edgeName}, .LV_OBJ_FLAG_HIDDEN)" else "")
+    ) n);
 
-  topEdges = lib.concatStringsSep "\n" (map (c: renderEdge c "horizontal") topContainers);
-  bottomEdges = lib.concatStringsSep "\n" (map (c: renderEdge c "horizontal") bottomContainers);
-  leftEdges = lib.concatStringsSep "\n" (map (c: renderEdge c "vertical") leftContainers);
-  rightEdges = lib.concatStringsSep "\n" (map (c: renderEdge c "vertical") rightContainers);
+  topEdges = renderEdges "top" topContainers "horizontal";
+  bottomEdges = renderEdges "bottom" bottomContainers "horizontal";
+  leftEdges = renderEdges "left" leftContainers "vertical";
+  rightEdges = renderEdges "right" rightContainers "vertical";
 
 in
 ''

@@ -34,6 +34,7 @@ main :: proc() {
 
     engine_init_clipboard()
     config_load()
+    resolve_font()
 
     // Init LVGL
     lv_init()
@@ -92,6 +93,7 @@ main :: proc() {
         }
 
         poll_events()
+        check_hover_edges()
 
         // Apply pending resize after debounce
         if r, ok := pending_resize.?; ok {
@@ -104,6 +106,19 @@ main :: proc() {
         }
 
         engine_pump()       // WebKit renders → copies directly to fb content area
+
+        // Sync URL bar and window title from WebKit
+        uri: cstring
+        engine_get_uri(&uri)
+        if uri != nil && uri != lv_textarea_get_text(url_input) {
+            lv_textarea_set_text(url_input, uri)
+        }
+
+        title: cstring
+        engine_get_title(&title)
+        if title != nil {
+            display.display_set_title(string(title))
+        }
 
         ms := lv_timer_handler()  // LVGL renders chrome to fb
         if ms == 0xFFFFFFFF {

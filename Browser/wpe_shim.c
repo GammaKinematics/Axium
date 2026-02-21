@@ -731,6 +731,13 @@ void engine_get_uri(const char** uri)
         *uri = webkit_web_view_get_uri(g_web_view);
 }
 
+void engine_get_title(const char** title)
+{
+    *title = NULL;
+    if (g_web_view)
+        *title = webkit_web_view_get_title(g_web_view);
+}
+
 void engine_shutdown(void)
 {
     g_clear_object(&g_web_view);

@@ -22,6 +22,9 @@ content_x, content_y, content_w, content_h: int
 // URL bar widget reference (set by generated UI code)
 url_input: ^lv_obj_t
 
+// Hold-mode edge tracking: maps binding → edge being held
+held_edges: map[Bind]^Edge_Info
+
 // Returns true if point (px, py) is inside the content area
 in_content_area :: proc(px, py: int) -> bool {
     return px >= content_x && px < content_x + content_w &&
@@ -52,12 +55,22 @@ poll_events :: proc() {
                     held += {k}
                     for bind, cmd in bindings {
                         if held >= bind {
+                            // Hold-mode edge commands
+                            if is_hold_command(cmd) {
+                                if edge := get_hold_edge(cmd); edge != nil {
+                                    edge_show(edge)
+                                    held_edges[bind] = edge
+                                }
+                                return
+                            }
                             execute_command(cmd)
                             return
                         }
                     }
                 } else {
                     held -= {k}
+                    // Release held edges whose binding is no longer satisfied
+                    check_held_edges()
                 }
             }
 
@@ -88,6 +101,10 @@ poll_events :: proc() {
             }
 
         case display.Mouse:
+            // Always track raw screen position for hover edge detection
+            mouse_screen_x = i32(e.x)
+            mouse_screen_y = i32(e.y)
+
             // Track held buttons for bindings
             if k, ok := to_mouse(u32(e.button)).?; ok {
                 if e.pressed {
@@ -130,6 +147,10 @@ poll_events :: proc() {
             }
 
         case display.Mouse_Move:
+            // Always track raw screen position for hover edge detection
+            mouse_screen_x = i32(e.x)
+            mouse_screen_y = i32(e.y)
+
             px, py := int(e.x), int(e.y)
             if content_has_focus && in_content_area(px, py) {
                 engine_send_mouse_move(
@@ -151,6 +172,21 @@ poll_events :: proc() {
         case display.Close:
             // Handled by display_should_close()
         }
+    }
+}
+
+// Check held edges and hide any whose binding is no longer satisfied
+check_held_edges :: proc() {
+    to_remove: [dynamic]Bind
+    defer delete(to_remove)
+    for bind, edge in held_edges {
+        if held < bind {
+            edge_hide(edge)
+            append(&to_remove, bind)
+        }
+    }
+    for b in to_remove {
+        delete_key(&held_edges, b)
     }
 }
 
@@ -192,4 +228,3 @@ handle_resize :: proc(lv_disp: ^lv_display_t) {
         c.int(content_w), c.int(content_h),
     )
 }
-

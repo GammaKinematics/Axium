@@ -31,6 +31,7 @@ foreign engine {
     engine_go_forward        :: proc() ---
     engine_reload            :: proc() ---
     engine_get_uri           :: proc(uri: ^cstring) ---
+    engine_get_title         :: proc(title: ^cstring) ---
     engine_set_clipboard_callbacks :: proc(
         set_fn: proc "c" (text: cstring) -> bool,
         get_fn: proc "c" () -> cstring,

@@ -24,4 +24,14 @@ config_load :: proc() {
     if !rok do return
 
     parse_bindings(root["keybindings"].(json.Object) or_else nil, &bindings)
+    parse_theme(root["theme"].(json.Object) or_else nil)
+    parse_font(root["font"].(json.Object) or_else nil)
+    parse_ui(root["ui"].(json.Object) or_else nil)
+}
+
+parse_ui :: proc(obj: json.Object) {
+    if obj == nil do return
+    if hd, ok := obj["hover_distance"].(json.Integer); ok {
+        hover_distance = i32(hd)
+    }
 }

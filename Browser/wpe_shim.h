@@ -53,6 +53,7 @@ void engine_go_back(void);
 void engine_go_forward(void);
 void engine_reload(void);
 void engine_get_uri(const char** uri);
+void engine_get_title(const char** title);
 
 // Shut down engine and release resources
 void engine_shutdown(void);
