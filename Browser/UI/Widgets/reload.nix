@@ -5,9 +5,9 @@ import ./button.nix {
   symbol = "REFRESH";
   callbackName = "on_reload_page";
   callbackImpl = ''
-    on_reload_page :: proc "c" (e: ^lvgl.lv_event_t) {
-        context = {}
-        fmt.println("Reload page")
+    on_reload_page :: proc "c" (e: ^lv_event_t) {
+        context = runtime.default_context()
+        execute_command("reload")
     }
   '';
 }

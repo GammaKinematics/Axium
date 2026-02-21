@@ -5,9 +5,9 @@ import ./button.nix {
   symbol = "COPY";
   callbackName = "on_copy_url";
   callbackImpl = ''
-    on_copy_url :: proc "c" (e: ^lvgl.lv_event_t) {
-        context = {}
-        fmt.println("Copy URL")
+    on_copy_url :: proc "c" (e: ^lv_event_t) {
+        context = runtime.default_context()
+        execute_command("copy")
     }
   '';
 }

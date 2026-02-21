@@ -48,26 +48,26 @@ let
   # Generate spacer (flex_grow object)
   spacer = ''
         {
-            spacer := lvgl.lv_obj_create(edge_container)
-            lvgl.lv_obj_set_height(spacer, lvgl.lv_pct(100))
-            lvgl.lv_obj_set_flex_grow(spacer, 1)
+            spacer := lv_obj_create(edge_container)
+            lv_obj_set_height(spacer, lv_pct(100))
+            lv_obj_set_flex_grow(spacer, 1)
         }'';
 
 in
 ''
     // Edge container (${orientation})
     {
-        edge_container := lvgl.lv_obj_create(parent)
-        lvgl.lv_obj_set_width(edge_container, ${if orientation == "horizontal" then "lvgl.lv_pct(100)" else toString sizeValue})
-        lvgl.lv_obj_set_height(edge_container, ${if orientation == "horizontal" then toString sizeValue else "lvgl.lv_pct(100)"})
-        lvgl.lv_obj_set_flex_flow(edge_container, ${flexFlow})
-        lvgl.lv_obj_set_flex_align(edge_container, .LV_FLEX_ALIGN_START, .LV_FLEX_ALIGN_CENTER, .LV_FLEX_ALIGN_CENTER)
-        lvgl.lv_obj_set_style_pad_left(edge_container, 10, 0)
-        lvgl.lv_obj_set_style_pad_right(edge_container, 10, 0)
-        lvgl.lv_obj_set_style_pad_column(edge_container, 10, 0)
-        lvgl.lv_obj_set_style_bg_color(edge_container, lvgl.lv_color_hex(0x${edgeBg}), 0)
-        lvgl.lv_obj_set_style_bg_opa(edge_container, lvgl.LV_OPA_COVER, 0)
-        lvgl.lv_obj_remove_flag(edge_container, .LV_OBJ_FLAG_SCROLLABLE)
+        edge_container := lv_obj_create(parent)
+        lv_obj_set_width(edge_container, ${if orientation == "horizontal" then "lv_pct(100)" else toString sizeValue})
+        lv_obj_set_height(edge_container, ${if orientation == "horizontal" then toString sizeValue else "lv_pct(100)"})
+        lv_obj_set_flex_flow(edge_container, ${flexFlow})
+        lv_obj_set_flex_align(edge_container, .LV_FLEX_ALIGN_START, .LV_FLEX_ALIGN_CENTER, .LV_FLEX_ALIGN_CENTER)
+        lv_obj_set_style_pad_left(edge_container, 10, 0)
+        lv_obj_set_style_pad_right(edge_container, 10, 0)
+        lv_obj_set_style_pad_column(edge_container, 10, 0)
+        lv_obj_set_style_bg_color(edge_container, lv_color_hex(0x${edgeBg}), 0)
+        lv_obj_set_style_bg_opa(edge_container, LV_OPA_COVER, 0)
+        lv_obj_remove_flag(edge_container, .LV_OBJ_FLAG_SCROLLABLE)
 
 ${if hasStart then renderZone startZone else ""}
 ${spacer}

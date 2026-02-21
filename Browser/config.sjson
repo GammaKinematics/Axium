@@ -1,0 +1,11 @@
+{
+    keybindings: {
+        "Ctrl_L+C": "copy"
+        "Ctrl_L+X": "cut"
+        "Ctrl_L+V": "paste"
+        "Ctrl_L+Shift_L+V": "paste_plain"
+        "Ctrl_L+A": "select_all"
+        "Ctrl_L+Z": "undo"
+        "Ctrl_L+Shift_L+Z": "redo"
+    }
+}

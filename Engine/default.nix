@@ -30,11 +30,10 @@ pkgs.stdenv.mkDerivation {
     gperf
     unifdef
     glib
-    wayland-scanner
   ];
 
   buildInputs = with pkgs; [
-    # Core (from OptionsWPE.cmake)
+    # Core
     glib
     harfbuzzFull
     icu
@@ -51,79 +50,99 @@ pkgs.stdenv.mkDerivation {
     zlib
     libwebp
 
-    # GStreamer
+    # GStreamer (video/audio playback)
     gst_all_1.gstreamer
     gst_all_1.gst-plugins-base
     gst_all_1.gst-plugins-good
     gst_all_1.gst-plugins-bad
-
-    # Wayland (WPE Platform Wayland backend)
-    wayland
-    wayland-protocols
-
-    # DRM/GBM (WPE Platform DRM backend + GPU buffer export)
-    libdrm
-    mesa
-    libgbm
-    libinput
-    udev
 
     # Sandbox
     bubblewrap
     libseccomp
     xdg-dbus-proxy
 
-    # Required by glib's pkg-config
-    sysprof
-
-    # Graphics
-    libGL
+    # Graphics (mesa for EGL — required by WPE2 platform API)
+    mesa
+    libdrm          # drm_fourcc.h pixel format constants (used by DMA-BUF code paths)
+    libgbm          # GBM — AcceleratedSurface.cpp assumes USE(GBM) unconditionally
     freetype
     fontconfig
-
-    # X11/XCB
-    xorg.libX11
-    xorg.libxcb
-    xorg.libXext
-
-    # Image formats
-    libavif
-    libjxl
-    lcms2
+    expat
 
     # Misc
-    libxslt
-    woff2
-    at-spi2-atk
-    atk
-    hyphen
     libbacktrace
     libsecret
   ];
 
-  env = pkgs.lib.optionalAttrs (optFlagsStr != "") {
-    NIX_CFLAGS_COMPILE = optFlagsStr;
+  env = {
+    # -gsplit-dwarf: splits debug info into .dwo files so the linker
+    # doesn't choke on >4 GB .debug_info (R_X86_64_32 relocation overflow).
+    NIX_CFLAGS_COMPILE = pkgs.lib.concatStringsSep " " (optFlags ++ [ "-gsplit-dwarf" ]);
   };
 
   cmakeFlags = [
     "-DPORT=WPE"
-    "-DCMAKE_BUILD_TYPE=RelWithDebInfo"
-    "-DENABLE_ASSERTS=ON"
+    "-DCMAKE_BUILD_TYPE=Debug"
 
-    # WPE2 Platform API only (no legacy)
+    # Fix: GCC_OFFLINEASM_SOURCE_MAP auto-enables in RelWithDebInfo and
+    # triggers postprocess-asm -> resolve-asm-file-conflicts.rb which
+    # fails in the Nix sandbox (#!/usr/bin/env shebang). Disable it;
+    # only loses line-level debug of LLInt assembly.
+    "-DGCC_OFFLINEASM_SOURCE_MAP=OFF"
+
+    # WPE2 platform base classes only — no built-in backends.
+    # Axium provides its own WPEDisplay/View/Toplevel via wpe_shim.c
+    # and renders to a framebuffer through Display-Onix (X11).
     "-DENABLE_WPE_PLATFORM=ON"
-    "-DENABLE_WPE_PLATFORM_DRM=ON"
-    "-DENABLE_WPE_PLATFORM_HEADLESS=ON"
-    "-DENABLE_WPE_PLATFORM_WAYLAND=ON"
+    "-DENABLE_WPE_PLATFORM_DRM=OFF"
+    "-DENABLE_WPE_PLATFORM_HEADLESS=OFF"
+    "-DENABLE_WPE_PLATFORM_WAYLAND=OFF"
     "-DENABLE_WPE_LEGACY_API=OFF"
 
-    # Disable everything we don't need
-    "-DENABLE_GAMEPAD=OFF"
+    # No GPU process — we force the SHM pixel path
+    "-DENABLE_GPU_PROCESS=OFF"
+
+    # Media — keep video/audio (required by Quirks.cpp, useful anyway)
     "-DENABLE_MEDIA_STREAM=OFF"
+    "-DENABLE_MEDIA_RECORDER=OFF"
+    "-DENABLE_ENCRYPTED_MEDIA=OFF"
+    "-DENABLE_WEB_CODECS=OFF"
+
+    # Graphics features
+    "-DENABLE_WEBGL=OFF"
+
+    # Web APIs not needed
+    "-DENABLE_GAMEPAD=OFF"
     "-DENABLE_WEB_RTC=OFF"
     "-DENABLE_NOTIFICATIONS=OFF"
     "-DENABLE_SPEECH_SYNTHESIS=OFF"
     "-DENABLE_WEBXR=OFF"
+    "-DENABLE_TOUCH_EVENTS=OFF"
+    "-DENABLE_GEOLOCATION=OFF"
+    "-DENABLE_FULLSCREEN_API=OFF"
+    "-DENABLE_REMOTE_INSPECTOR=OFF"
+    "-DENABLE_CONTENT_EXTENSIONS=OFF"
+    # CONTEXT_MENUS must stay ON — MediaControlsHost.cpp has unguarded
+    # return type mismatch when disabled.
+    # "-DENABLE_CONTEXT_MENUS=OFF"
+    "-DENABLE_DRAG_SUPPORT=OFF"
+    "-DENABLE_MATHML=OFF"
+
+    # UI/rendering features
+    "-DENABLE_ASYNC_SCROLLING=OFF"
+    "-DENABLE_SMOOTH_SCROLLING=OFF"
+    "-DENABLE_AUTOCAPITALIZE=OFF"
+    "-DENABLE_VARIATION_FONTS=OFF"
+    "-DENABLE_DARK_MODE_CSS=OFF"
+    "-DENABLE_CURSOR_VISIBILITY=OFF"
+    "-DENABLE_MOUSE_CURSOR_SCALE=OFF"
+    "-DENABLE_OFFSCREEN_CANVAS=OFF"
+    "-DENABLE_OFFSCREEN_CANVAS_IN_WORKERS=OFF"
+    "-DENABLE_MHTML=OFF"
+    "-DENABLE_PDFJS=OFF"
+    "-DENABLE_XSLT=OFF"
+
+    # Build/test/tooling
     "-DENABLE_DOCUMENTATION=OFF"
     "-DENABLE_INTROSPECTION=OFF"
     "-DENABLE_WPE_QT_API=OFF"
@@ -131,9 +150,24 @@ pkgs.stdenv.mkDerivation {
     "-DENABLE_API_TESTS=OFF"
     "-DENABLE_LAYOUT_TESTS=OFF"
     "-DENABLE_WEBDRIVER=OFF"
-    "-DENABLE_BUBBLEWRAP_SANDBOX=ON"
     "-DENABLE_JOURNALD_LOG=OFF"
+
+    # USE_ flags
     "-DUSE_SYSPROF_CAPTURE=OFF"
+    "-DUSE_AVIF=OFF"
+    "-DUSE_JPEGXL=OFF"
+    "-DUSE_LCMS=OFF"
+    "-DUSE_WOFF2=OFF"
+    "-DUSE_LIBHYPHEN=OFF"
+    "-DUSE_ATK=OFF"
+    # GBM/LIBDRM must stay ON — AcceleratedSurface.cpp and AcceleratedBackingStore.cpp
+    # assume USE(GBM) and USE(LIBDRM) unconditionally. Only used at compile time;
+    # wpe_shim.c forces SHM at runtime.
+    # "-DUSE_GBM=OFF"
+    "-DUSE_SKIA_OPENTYPE_SVG=OFF"
+
+    # Keep sandbox
+    "-DENABLE_BUBBLEWRAP_SANDBOX=ON"
   ];
 
   enableParallelBuilding = true;

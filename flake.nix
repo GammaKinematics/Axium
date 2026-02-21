@@ -1,5 +1,5 @@
 {
-  description = "Axium - Minimal and private browser built on WebKit WPE with Brave's adblocker";
+  description = "Axium - Minimal browser engine test harness";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -9,81 +9,69 @@
       flake = false;
     };
 
-    adblock-rust = {
-      url = "git+https://github.com/brave/adblock-rust?shallow=1";
-      flake = false;
+    display-onix.url = "path:/data/Browser/Display-Onix";
+    bindings-onix = {
+      url = "path:/data/Browser/Bindings-Onix";
+      inputs.nixpkgs.follows = "nixpkgs";
     };
-
-    lvgl-nix.url = "path:/data/Browser/LVGL-Nix";
+    lvgl-onix = {
+      url = "path:/data/Browser/LVGL-Onix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    theme-onix.url = "path:/data/Browser/Theme-Onix";
   };
 
-  outputs = { self, nixpkgs, webkit, adblock-rust, lvgl-nix }:
+  outputs = { self, nixpkgs, webkit, display-onix, bindings-onix, lvgl-onix, theme-onix }:
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
 
-      # Optimization defaults
-      optDefaults = {
-        optimize = true;
-        march = "x86-64-v3";
-        fastMath = true;
+      engine = import ./Engine {
+        inherit pkgs webkit;
+        optimize = false;
+        march = null;
+        fastMath = false;
+        lto = false;
       };
 
-      lvgl = lvgl-nix.lib.mkLvgl (optDefaults // {
-        lto = false;  # Can't use LTO - Odin uses GNU ld without LTO plugin
-        tinyTtf = false;  # Disable for now - use built-in Montserrat fonts
-        odinBindings = true;
-        logging = true;  # Enable logging to debug rendering
-        logLevel = "INFO";  # TRACE, INFO, WARN, ERROR, USER, NONE
-        # Use GLFW + OpenGL for GL context, but SW rendering for widgets
-        # This gives us: EGL context for WebKit texture import + working SW widget rendering
-        glfw = true;
-        x11 = false;
-        sdl = false;
-        opengl = true;       # LV_USE_OPENGLES = 1 (GL context + texture APIs)
-        openglDraw = false;  # LV_USE_DRAW_OPENGLES = 0 (use SW for widget drawing)
-        # Theme - uses nix-generated theme
-        darkMode = true;
-        # customTheme = {};  # Override default theme values here if needed
-      });
+      generatedBindings = bindings-onix.lib.generate {
+        package = "axium";
+        keyboard = [{ backend = "xcb"; }];
+        mouse = [{ backend = "xcb"; }];
+      };
+
+      lvgl = lvgl-onix.lib.mkLvgl {
+        hostPkgs = pkgs;
+        inherit pkgs;
+        displayFormat = "xrgb8888";
+        thorvg = false;
+        widgets = ["button" "label" "textarea"];
+      };
+
+      lvglBindings = lvgl-onix.lib.bindings { package = "axium"; };
+
+      themeOdin = theme-onix.lib.generate {
+        package = "axium";
+        theme = lvgl.passthru.theme;
+      };
+
+      generatedUI = pkgs.writeText "ui.odin" (import ./Browser/UI/ui.nix {});
 
     in {
       packages.${system} = rec {
-        inherit lvgl;
+        inherit engine;
 
-        engine = import ./Engine {
-          inherit pkgs webkit;
-          # Debug build - no optimizations
-          optimize = false;
-          march = null;
-          fastMath = false;
-          lto = false;
-        };
-
-        adblock = import ./Adblock {
-          inherit pkgs adblock-rust;
-        };
-
-        # Bindings are now included in lvgl/odin/
         browser = import ./Browser {
-          inherit pkgs lvgl engine;
-          theme = lvgl.theme;
+          inherit pkgs engine display-onix generatedBindings
+                  lvgl lvglBindings themeOdin generatedUI;
         };
 
         default = browser;
       };
 
       devShells.${system}.default = pkgs.mkShell {
-        packages = with pkgs; [
-          odin
-          ccache
-          gdb
-        ];
-
-        inputsFrom = [
-          self.packages.${system}.engine
-          self.packages.${system}.adblock
-        ];
+        packages = with pkgs; [ odin gdb ];
+        inputsFrom = [ self.packages.${system}.engine ];
       };
     };
 }

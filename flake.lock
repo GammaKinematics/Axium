@@ -1,35 +1,49 @@
 {
   "nodes": {
-    "adblock-rust": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1769171048,
-        "narHash": "sha256-XRbPCE7h+QSRwUiedM+FFstnVcblrFPl5+Es2ER4SwA=",
-        "ref": "refs/heads/master",
-        "rev": "a8bcf36a496a7bfc120a1a8e03e8cfa36a48ddad",
-        "shallow": true,
-        "type": "git",
-        "url": "https://github.com/brave/adblock-rust"
-      },
-      "original": {
-        "shallow": true,
-        "type": "git",
-        "url": "https://github.com/brave/adblock-rust"
-      }
-    },
-    "lvgl-nix": {
+    "bindings-onix": {
       "inputs": {
-        "lvgl-src": "lvgl-src",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": [
+          "nixpkgs"
+        ]
       },
       "locked": {
-        "lastModified": 1770273147,
-        "narHash": "sha256-4TQqbPaaG2iUsittgStOWDaI0Jaj43krS/corOQLfoM=",
-        "path": "/data/Browser/LVGL-Nix",
+        "lastModified": 1771591574,
+        "narHash": "sha256-i6H2MCkiNPqDtGNqwZbvH1mllcihMmA0F1d22Or0+7I=",
+        "path": "/data/Browser/Bindings-Onix",
         "type": "path"
       },
       "original": {
-        "path": "/data/Browser/LVGL-Nix",
+        "path": "/data/Browser/Bindings-Onix",
+        "type": "path"
+      }
+    },
+    "display-onix": {
+      "locked": {
+        "lastModified": 1771586578,
+        "narHash": "sha256-Dj+59EpEI/GMLsEXAwbWZC5MhCMcUp1ifLhRQUNk5xs=",
+        "path": "/data/Browser/Display-Onix",
+        "type": "path"
+      },
+      "original": {
+        "path": "/data/Browser/Display-Onix",
+        "type": "path"
+      }
+    },
+    "lvgl-onix": {
+      "inputs": {
+        "lvgl-src": "lvgl-src",
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1771630668,
+        "narHash": "sha256-azFcpJsW97rc8G0ds4pGzM2DKmIsnx2fyHDEfo9uefY=",
+        "path": "/data/Browser/LVGL-Onix",
+        "type": "path"
+      },
+      "original": {
+        "path": "/data/Browser/LVGL-Onix",
         "type": "path"
       }
     },
@@ -52,22 +66,6 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1770019141,
-        "narHash": "sha256-VKS4ZLNx4PNrABoB0L8KUpc1fE7CLpQXQs985tGfaCU=",
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "rev": "cb369ef2efd432b3cdf8622b0ffc0a97a02f3137",
-        "type": "github"
-      },
-      "original": {
-        "owner": "NixOS",
-        "ref": "nixos-unstable",
-        "repo": "nixpkgs",
-        "type": "github"
-      }
-    },
-    "nixpkgs_2": {
-      "locked": {
         "lastModified": 1769789167,
         "narHash": "sha256-kKB3bqYJU5nzYeIROI82Ef9VtTbu4uA3YydSk/Bioa8=",
         "owner": "NixOS",
@@ -84,10 +82,24 @@
     },
     "root": {
       "inputs": {
-        "adblock-rust": "adblock-rust",
-        "lvgl-nix": "lvgl-nix",
-        "nixpkgs": "nixpkgs_2",
+        "bindings-onix": "bindings-onix",
+        "display-onix": "display-onix",
+        "lvgl-onix": "lvgl-onix",
+        "nixpkgs": "nixpkgs",
+        "theme-onix": "theme-onix",
         "webkit": "webkit"
+      }
+    },
+    "theme-onix": {
+      "locked": {
+        "lastModified": 1771619686,
+        "narHash": "sha256-MXudYlIAAe3u/D5WzcICGVSES25iLBgaDcoPDWAq3y8=",
+        "path": "/data/Browser/Theme-Onix",
+        "type": "path"
+      },
+      "original": {
+        "path": "/data/Browser/Theme-Onix",
+        "type": "path"
       }
     },
     "webkit": {

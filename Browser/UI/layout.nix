@@ -31,31 +31,35 @@ let
 in
 ''
     // Main vertical layout
-    main_container := lvgl.lv_obj_create(screen)
-    lvgl.lv_obj_set_size(main_container, lvgl.lv_pct(100), lvgl.lv_pct(100))
-    lvgl.lv_obj_set_flex_flow(main_container, .LV_FLEX_FLOW_COLUMN)
-    lvgl.lv_obj_remove_flag(main_container, .LV_OBJ_FLAG_SCROLLABLE)
+    main_container := lv_obj_create(screen)
+    lv_obj_set_size(main_container, lv_pct(100), lv_pct(100))
+    lv_obj_set_flex_flow(main_container, .LV_FLEX_FLOW_COLUMN)
+    lv_obj_remove_flag(main_container, .LV_OBJ_FLAG_SCROLLABLE)
 
     parent := main_container
 
 ${if hasTop then "    // Top edge\n${topEdges}" else ""}
 
     // Middle section (left edge + content + right edge)
-    middle := lvgl.lv_obj_create(parent)
-    lvgl.lv_obj_set_width(middle, lvgl.lv_pct(100))
-    lvgl.lv_obj_set_flex_grow(middle, 1)
-    lvgl.lv_obj_set_flex_flow(middle, .LV_FLEX_FLOW_ROW)
-    lvgl.lv_obj_remove_flag(middle, .LV_OBJ_FLAG_SCROLLABLE)
+    middle := lv_obj_create(parent)
+    lv_obj_set_width(middle, lv_pct(100))
+    lv_obj_set_flex_grow(middle, 1)
+    lv_obj_set_flex_flow(middle, .LV_FLEX_FLOW_ROW)
+    lv_obj_remove_flag(middle, .LV_OBJ_FLAG_SCROLLABLE)
 
     {
         parent := middle
 ${if hasLeft then "        // Left edge\n${leftEdges}" else ""}
 
-        // Content area (transparent — web content GL texture shows through)
-        content := lvgl.lv_obj_create(parent)
-        lvgl.lv_obj_set_height(content, lvgl.lv_pct(100))
-        lvgl.lv_obj_set_flex_grow(content, 1)
-        lvgl.lv_obj_remove_flag(content, .LV_OBJ_FLAG_SCROLLABLE)
+        // Content area — web content rendered here by WebKit
+        content := lv_obj_create(parent)
+        lv_obj_set_height(content, lv_pct(100))
+        lv_obj_set_flex_grow(content, 1)
+        lv_obj_remove_flag(content, .LV_OBJ_FLAG_SCROLLABLE)
+        lv_obj_remove_flag(content, .LV_OBJ_FLAG_CLICKABLE)
+
+        // Store for main.odin to query position/size
+        content_area = content
 
 ${if hasRight then "        // Right edge\n${rightEdges}" else ""}
     }

@@ -5,9 +5,9 @@ import ./button.nix {
   symbol = "LEFT";
   callbackName = "on_navigate_back";
   callbackImpl = ''
-    on_navigate_back :: proc "c" (e: ^lvgl.lv_event_t) {
-        context = {}
-        fmt.println("Navigate back")
+    on_navigate_back :: proc "c" (e: ^lv_event_t) {
+        context = runtime.default_context()
+        execute_command("back")
     }
   '';
 }
