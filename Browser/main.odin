@@ -2,16 +2,18 @@ package axium
 
 import "core:c"
 import "core:fmt"
+import "core:strings"
 import "core:sys/posix"
 import "core:time"
-import "display"
 
 WIDTH  :: 1280
 HEIGHT :: 720
 
 // Display state
 lv_disp: ^lv_display_t
-pending_resize: Maybe(display.Resize)
+keyboard_group: ^lv_group_t
+icon_font: ^lv_font_t
+pending_resize: Maybe(Resize)
 last_resize_time: time.Tick
 
 // LVGL flush callback — marks rendering complete (direct mode, no copy needed)
@@ -20,11 +22,11 @@ flush_cb :: proc "c" (disp: ^lv_display_t, area: ^lv_area_t, px: [^]u8) {
 }
 
 main :: proc() {
-    if !display.display_init("Axium", WIDTH, HEIGHT) {
+    if !display_init("Axium", WIDTH, HEIGHT) {
         fmt.eprintln("Failed to create window")
         return
     }
-    defer display.display_destroy()
+    defer display_destroy()
 
     if !engine_init() {
         fmt.eprintln("Failed to init engine")
@@ -32,7 +34,23 @@ main :: proc() {
     }
     defer engine_shutdown()
 
+    // Set screen properties from RANDR so WebKit knows DPI, scale, refresh rate
+    screen_info := display_screen_info()
+    engine_set_screen_info(
+        c.int(screen_info.width), c.int(screen_info.height),
+        c.int(screen_info.physical_width_mm), c.int(screen_info.physical_height_mm),
+        c.int(screen_info.refresh_rate_mhz), c.double(screen_info.scale),
+    )
+
+    // Configure adblock web process extension (must be before engine_create_view)
+    ext_dir := posix.getenv("AXIUM_EXT_DIR")
+    filter_path := posix.getenv("AXIUM_FILTERS")
+    if ext_dir != nil && filter_path != nil {
+        engine_init_adblock(ext_dir, filter_path)
+    }
+
     engine_init_clipboard()
+    engine_init_navigation()
     config_load()
     resolve_font()
 
@@ -43,7 +61,7 @@ main :: proc() {
     lv_disp = lv_display_create(i32(WIDTH), i32(HEIGHT))
     lv_display_set_color_format(lv_disp, .LV_COLOR_FORMAT_ARGB8888)
 
-    fb, fb_w, fb_h := display.display_framebuffer()
+    fb, fb_w, fb_h := display_framebuffer()
     lv_display_set_buffers(lv_disp, raw_data(fb), nil, u32(len(fb) * 4), .LV_DISPLAY_RENDER_MODE_DIRECT)
     lv_display_set_flush_cb(lv_disp, flush_cb)
 
@@ -56,35 +74,51 @@ main :: proc() {
     lv_indev_set_type(kb_indev, .LV_INDEV_TYPE_KEYPAD)
     lv_indev_set_read_cb(kb_indev, keyboard_read_cb)
 
-    // Build UI
-    screen := lv_screen_active()
+    // Set Edge-Onix globals before init
     kb_group := lv_group_create()
     lv_indev_set_group(kb_indev, kb_group)
-    build_ui(screen, kb_group)
+    keyboard_group = kb_group
+    icon_font = lv_onix_icons_get(font_size_base)
 
-    // Force layout pass so content_area has valid coordinates
-    lv_obj_update_layout(screen)
-    query_content_bounds()
+    // Font setup (TTF) on active screen
+    if font_path != "" {
+        cpath := strings.clone_to_cstring(strings.concatenate({"A:", font_path}))
+        base_font := lv_tiny_ttf_create_file(cpath, font_size_base)
+        if base_font != nil {
+            lv_obj_set_style_text_font(lv_screen_active(), base_font, 0)
+        }
+    }
 
-    // Create WebKit view sized to content area
-    if !engine_create_view(c.int(content_w), c.int(content_h)) {
+    // Build edge containers on lv_layer_top()
+    widgets_init()
+    bounds := edge_init()
+    content_area = bounds
+    input_area = edge_content_widget_bounds()
+
+    // Create first WebKit view sized to content area
+    first_view := engine_create_view(bounds.w, bounds.h)
+    if first_view < 0 {
         fmt.eprintln("Failed to create view")
         return
     }
+    engine_set_active_view(0)
+    active_tab = 0
+    tab_count = 1
 
     // Point WebKit output directly into content area of framebuffer
     engine_set_frame_target(
         ([^]u8)(raw_data(fb)),
         c.int(fb_w * 4),
-        c.int(content_x), c.int(content_y),
-        c.int(content_w), c.int(content_h),
+        bounds.x, bounds.y,
+        bounds.w, bounds.h,
     )
 
     engine_load_uri("https://en.wikipedia.org/wiki/WebKit")
+    tab_bar_rebuild()
 
     // Main loop
     last_tick := time.now()
-    for !display.display_should_close() {
+    for !display_should_close() {
         now := time.now()
         delta := time.duration_milliseconds(time.diff(last_tick, now))
         if delta > 0 {
@@ -93,7 +127,14 @@ main :: proc() {
         }
 
         poll_events()
-        check_hover_edges()
+
+        // Check hover edges each frame
+        new_bounds := edge_check_hover(mouse_screen_x, mouse_screen_y)
+        if new_bounds != content_area {
+            content_area = new_bounds
+            input_area = edge_content_widget_bounds()
+            update_engine_bounds()
+        }
 
         // Apply pending resize after debounce
         if r, ok := pending_resize.?; ok {
@@ -105,22 +146,11 @@ main :: proc() {
             continue  // Skip rendering while framebuffer is being resized
         }
 
-        engine_pump()       // WebKit renders → copies directly to fb content area
-
-        // Sync URL bar and window title from WebKit
-        uri: cstring
-        engine_get_uri(&uri)
-        if uri != nil && uri != lv_textarea_get_text(url_input) {
-            lv_textarea_set_text(url_input, uri)
-        }
-
-        title: cstring
-        engine_get_title(&title)
-        if title != nil {
-            display.display_set_title(string(title))
-        }
-
-        ms := lv_timer_handler()  // LVGL renders chrome to fb
+        ms := lv_timer_handler()  // LVGL renders chrome (may overwrite content area)
+        engine_pump()             // WebKit processes events, may produce new frame
+        engine_grab_frame()       // Copy WebKit frame to framebuffer
+        edge_invalidate_overlays()
+        lv_refr_now(lv_disp)     // Redraw overlay edges on top of WebKit
         if ms == 0xFFFFFFFF {
             ms = 5
         }
@@ -128,13 +158,13 @@ main :: proc() {
         // Update cursor if WebKit changed it
         cursor := engine_get_cursor()
         if cursor >= 0 {
-            display.display_cursor_set(display.Cursor(cursor))
+            display_cursor_set(Cursor(cursor))
         }
 
-        display.display_present()
+        display_present()
 
         // Idle until input arrives or LVGL timer fires
-        pfd := posix.pollfd{fd = posix.FD(display.display_fd()), events = {.IN}}
+        pfd := posix.pollfd{fd = posix.FD(display_fd()), events = {.IN}}
         posix.poll(&pfd, 1, c.int(ms))
     }
 }

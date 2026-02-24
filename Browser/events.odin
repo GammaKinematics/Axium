@@ -2,7 +2,6 @@ package axium
 
 import "core:c"
 import "core:time"
-import "display"
 
 // Input state tracked via generated Bind bit_set
 held: Bind
@@ -16,19 +15,18 @@ input_key_pressed: bool
 // Focus tracking: true = web content has focus, false = chrome (URL bar etc.)
 content_has_focus: bool = true
 
-// Content area bounds (set by main.odin after layout)
-content_x, content_y, content_w, content_h: int
+// Content area bounds (set by edge_init, updated by edge_set_visible / resize)
+content_area: Content_Bounds  // WebKit rendering bounds (expanded for overlay)
+input_area:   Content_Bounds  // Raw content widget bounds (for input routing)
 
-// URL bar widget reference (set by generated UI code)
-url_input: ^lv_obj_t
+// Raw mouse screen position for hover edge detection
+mouse_screen_x, mouse_screen_y: i32
 
-// Hold-mode edge tracking: maps binding → edge being held
-held_edges: map[Bind]^Edge_Info
 
-// Returns true if point (px, py) is inside the content area
-in_content_area :: proc(px, py: int) -> bool {
-    return px >= content_x && px < content_x + content_w &&
-           py >= content_y && py < content_y + content_h
+// Returns true if point (px, py) is inside the input area
+in_content_area :: proc(px, py: i32) -> bool {
+    return px >= input_area.x && px < input_area.x + input_area.w &&
+           py >= input_area.y && py < input_area.y + input_area.h
 }
 
 // LVGL mouse input device callback
@@ -46,31 +44,25 @@ keyboard_read_cb :: proc "c" (indev: ^lv_indev_t, data: ^lv_indev_data_t) {
 
 // Poll display events and route between LVGL and WebKit
 poll_events :: proc() {
-    for ev in display.display_poll() {
+    for ev in display_poll() {
         switch e in ev {
-        case display.Key:
+        case Key:
             // Track held keys for keybinding system
             if k, ok := to_keyboard(u32(e.code)).?; ok {
                 if e.action == .Press {
                     held += {k}
                     for bind, cmd in bindings {
                         if held >= bind {
-                            // Hold-mode edge commands
-                            if is_hold_command(cmd) {
-                                if edge := get_hold_edge(cmd); edge != nil {
-                                    edge_show(edge)
-                                    held_edges[bind] = edge
-                                }
-                                return
-                            }
                             execute_command(cmd)
                             return
                         }
                     }
                 } else {
                     held -= {k}
-                    // Release held edges whose binding is no longer satisfied
-                    check_held_edges()
+                    for bind, cmd in bindings {
+                        if held >= bind do continue
+                        execute_command(cmd, false)
+                    }
                 }
             }
 
@@ -100,7 +92,7 @@ poll_events :: proc() {
                 }
             }
 
-        case display.Mouse:
+        case Mouse:
             // Always track raw screen position for hover edge detection
             mouse_screen_x = i32(e.x)
             mouse_screen_y = i32(e.y)
@@ -114,7 +106,7 @@ poll_events :: proc() {
                 }
             }
 
-            px, py := int(e.x), int(e.y)
+            px, py := i32(e.x), i32(e.y)
 
             // Scroll events (buttons 4-7) always go to WebKit if in content
             if e.button >= 4 && e.button <= 7 {
@@ -127,7 +119,7 @@ poll_events :: proc() {
                     case 7: dx = -1
                     }
                     engine_send_scroll(
-                        f64(px - content_x), f64(py - content_y),
+                        f64(px - content_area.x), f64(py - content_area.y),
                         dx, dy,
                     )
                 }
@@ -136,72 +128,48 @@ poll_events :: proc() {
                 content_has_focus = true
                 engine_send_mouse_button(
                     c.uint32_t(e.button), e.pressed,
-                    f64(px - content_x), f64(py - content_y),
+                    f64(px - content_area.x), f64(py - content_area.y),
                 )
             } else {
                 // Click in chrome → focus chrome, update LVGL state
                 content_has_focus = false
-                input_mouse_x = i32(px)
-                input_mouse_y = i32(py)
+                input_mouse_x = px
+                input_mouse_y = py
                 input_mouse_pressed = e.pressed
             }
 
-        case display.Mouse_Move:
+        case Mouse_Move:
             // Always track raw screen position for hover edge detection
             mouse_screen_x = i32(e.x)
             mouse_screen_y = i32(e.y)
 
-            px, py := int(e.x), int(e.y)
+            px, py := i32(e.x), i32(e.y)
             if content_has_focus && in_content_area(px, py) {
                 engine_send_mouse_move(
-                    f64(px - content_x), f64(py - content_y),
+                    f64(px - content_area.x), f64(py - content_area.y),
                 )
             } else {
                 // Update LVGL pointer position
-                input_mouse_x = i32(px)
-                input_mouse_y = i32(py)
+                input_mouse_x = px
+                input_mouse_y = py
             }
 
-        case display.Focus:
+        case Focus:
             engine_send_focus(e.focused)
 
-        case display.Resize:
+        case Resize:
             pending_resize = e
             last_resize_time = time.tick_now()
 
-        case display.Close:
+        case Close:
             // Handled by display_should_close()
         }
     }
 }
 
-// Check held edges and hide any whose binding is no longer satisfied
-check_held_edges :: proc() {
-    to_remove: [dynamic]Bind
-    defer delete(to_remove)
-    for bind, edge in held_edges {
-        if held < bind {
-            edge_hide(edge)
-            append(&to_remove, bind)
-        }
-    }
-    for b in to_remove {
-        delete_key(&held_edges, b)
-    }
-}
-
-// Get absolute screen position of content_area via lv_obj_get_coords
-query_content_bounds :: proc() {
-    coords: lv_area_t
-    lv_obj_get_coords(content_area, &coords)
-    content_x = int(coords.x1)
-    content_y = int(coords.y1)
-    content_w = int(coords.x2 - coords.x1 + 1)
-    content_h = int(coords.y2 - coords.y1 + 1)
-}
 
 handle_resize :: proc(lv_disp: ^lv_display_t) {
-    fb, fb_w, fb_h := display.display_framebuffer()
+    fb, fb_w, fb_h := display_framebuffer()
     if fb == nil do return
 
     // Update LVGL display
@@ -214,17 +182,28 @@ handle_resize :: proc(lv_disp: ^lv_display_t) {
     )
 
     // Re-layout and query content area
-    lv_obj_update_layout(lv_screen_active())
-    query_content_bounds()
+    lv_obj_update_layout(lv_layer_top())
+    content_area = edge_query_bounds()
+    input_area = edge_content_widget_bounds()
 
-    // Update WebKit view size
-    engine_resize(c.int(content_w), c.int(content_h))
-
-    // Update frame target
+    // Update WebKit view size and frame target
+    engine_resize(content_area.w, content_area.h)
     engine_set_frame_target(
         ([^]u8)(raw_data(fb)),
         c.int(fb_w * 4),
-        c.int(content_x), c.int(content_y),
-        c.int(content_w), c.int(content_h),
+        content_area.x, content_area.y,
+        content_area.w, content_area.h,
+    )
+}
+
+// Relayout helper — updates WebKit engine bounds after edge show/hide
+update_engine_bounds :: proc() {
+    engine_resize(content_area.w, content_area.h)
+    fb, fb_w, _ := display_framebuffer()
+    engine_set_frame_target(
+        ([^]u8)(raw_data(fb)),
+        c.int(fb_w * 4),
+        content_area.x, content_area.y,
+        content_area.w, content_area.h,
     )
 }

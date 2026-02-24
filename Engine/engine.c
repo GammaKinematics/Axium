@@ -1,12 +1,11 @@
 // WPE2 Engine Shim - CPU-only SHM pixel output
 // GObject subclasses for WPE2 + raw pixel extraction via SharedMemory path
 
-#include "wpe_shim.h"
+#include "engine.h"
 
 #include <wpe/wpe-platform.h>
 #include <wpe/webkit.h>
 
-#include <EGL/egl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,22 +17,24 @@ static GType axium_display_get_type(void);
 static GType axium_view_get_type(void);
 static GType axium_toplevel_get_type(void);
 static GType axium_clipboard_get_type(void);
+static GType axium_screen_get_type(void);
 
 #define AXIUM_TYPE_DISPLAY   (axium_display_get_type())
 #define AXIUM_TYPE_VIEW      (axium_view_get_type())
 #define AXIUM_TYPE_TOPLEVEL  (axium_toplevel_get_type())
 #define AXIUM_TYPE_CLIPBOARD (axium_clipboard_get_type())
+#define AXIUM_TYPE_SCREEN    (axium_screen_get_type())
 #define AXIUM_DISPLAY(obj)   (G_TYPE_CHECK_INSTANCE_CAST((obj), AXIUM_TYPE_DISPLAY, AxiumDisplay))
 #define AXIUM_VIEW(obj)      (G_TYPE_CHECK_INSTANCE_CAST((obj), AXIUM_TYPE_VIEW, AxiumView))
 #define AXIUM_TOPLEVEL(obj)  (G_TYPE_CHECK_INSTANCE_CAST((obj), AXIUM_TYPE_TOPLEVEL, AxiumToplevel))
 #define AXIUM_CLIPBOARD(obj) (G_TYPE_CHECK_INSTANCE_CAST((obj), AXIUM_TYPE_CLIPBOARD, AxiumClipboard))
 
 // ---------------------------------------------------------------------------
-// AxiumDisplay - headless EGL, SHM-only (no DRM, no DMA-BUF)
+// AxiumDisplay - CPU-only SHM (no EGL, no DRM, no DMA-BUF)
 // ---------------------------------------------------------------------------
 typedef struct {
     WPEDisplay parent_instance;
-    EGLDisplay egl_display;
+    WPEScreen* screen;
 } AxiumDisplay;
 
 typedef struct {
@@ -44,27 +45,16 @@ G_DEFINE_TYPE(AxiumDisplay, axium_display, WPE_TYPE_DISPLAY)
 
 static gboolean axium_display_connect(WPEDisplay* display, GError** error)
 {
-    AxiumDisplay* self = AXIUM_DISPLAY(display);
-
-    // Headless EGL — no GL context needed, just satisfies WebKit internals
-    self->egl_display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-    if (self->egl_display != EGL_NO_DISPLAY) {
-        if (!eglInitialize(self->egl_display, NULL, NULL))
-            self->egl_display = EGL_NO_DISPLAY;
-    }
-
+    // Pure CPU/SHM rendering — no EGL needed.
+    // Skipping eglGetDisplay/eglInitialize avoids loading Mesa/LLVM (~43 MB).
     return TRUE;
 }
 
 static gpointer axium_display_get_egl_display(WPEDisplay* display, GError** error)
 {
-    AxiumDisplay* self = AXIUM_DISPLAY(display);
-    if (self->egl_display == EGL_NO_DISPLAY) {
-        g_set_error_literal(error, WPE_EGL_ERROR, WPE_EGL_ERROR_NOT_AVAILABLE,
-                            "EGL not available");
-        return NULL;
-    }
-    return self->egl_display;
+    g_set_error_literal(error, WPE_EGL_ERROR, WPE_EGL_ERROR_NOT_AVAILABLE,
+                        "EGL not available (CPU-only SHM rendering)");
+    return NULL;
 }
 
 static WPEView* axium_display_create_view(WPEDisplay* display)
@@ -90,16 +80,27 @@ static WPEBufferFormats* axium_display_get_preferred_buffer_formats(WPEDisplay* 
 static void axium_display_dispose(GObject* object)
 {
     AxiumDisplay* self = AXIUM_DISPLAY(object);
-    if (self->egl_display != EGL_NO_DISPLAY) {
-        eglTerminate(self->egl_display);
-        self->egl_display = EGL_NO_DISPLAY;
-    }
+    g_clear_object(&self->screen);
     G_OBJECT_CLASS(axium_display_parent_class)->dispose(object);
 }
 
 static WPEClipboard* axium_display_get_clipboard(WPEDisplay* display)
 {
     return WPE_CLIPBOARD(g_object_new(AXIUM_TYPE_CLIPBOARD, "display", display, NULL));
+}
+
+static guint axium_display_get_n_screens(WPEDisplay* display)
+{
+    AxiumDisplay* self = AXIUM_DISPLAY(display);
+    return self->screen ? 1 : 0;
+}
+
+static WPEScreen* axium_display_get_screen(WPEDisplay* display, guint index)
+{
+    AxiumDisplay* self = AXIUM_DISPLAY(display);
+    if (index == 0 && self->screen)
+        return self->screen;
+    return NULL;
 }
 
 static void axium_display_class_init(AxiumDisplayClass* klass)
@@ -115,11 +116,13 @@ static void axium_display_class_init(AxiumDisplayClass* klass)
     display_class->get_drm_device = axium_display_get_drm_device;
     display_class->get_preferred_buffer_formats = axium_display_get_preferred_buffer_formats;
     display_class->get_clipboard = axium_display_get_clipboard;
+    display_class->get_n_screens = axium_display_get_n_screens;
+    display_class->get_screen = axium_display_get_screen;
 }
 
 static void axium_display_init(AxiumDisplay* self)
 {
-    self->egl_display = EGL_NO_DISPLAY;
+    self->screen = NULL;
 }
 
 // ---------------------------------------------------------------------------
@@ -191,7 +194,6 @@ typedef struct {
     WPEBuffer* pending_buffer;     // waiting to be promoted by idle cb
     guint      frame_source_id;    // idle source, 0 = not scheduled
 
-    bool       has_new_frame;
 } AxiumView;
 
 typedef struct {
@@ -240,46 +242,6 @@ static gboolean axium_view_render_buffer(WPEView* view, WPEBuffer* buffer,
                                           guint n_damage_rects, GError** error)
 {
     AxiumView* self = AXIUM_VIEW(view);
-
-    if (!g_frame_target) goto store_pending;
-
-    int w = wpe_buffer_get_width(buffer);
-    int h = wpe_buffer_get_height(buffer);
-
-    {
-        GError* imp_error = NULL;
-        GBytes* pix = wpe_buffer_import_to_pixels(buffer, &imp_error);
-        if (!pix) {
-            g_clear_error(&imp_error);
-            goto store_pending;
-        }
-
-        int src_stride;
-        if (WPE_IS_BUFFER_SHM(buffer)) {
-            src_stride = (int)wpe_buffer_shm_get_stride(WPE_BUFFER_SHM(buffer));
-        } else {
-            gsize sz = g_bytes_get_size(pix);
-            src_stride = (h > 0) ? (int)(sz / h) : w * 4;
-        }
-
-        gsize pix_size = 0;
-        const uint8_t* src = (const uint8_t*)g_bytes_get_data(pix, &pix_size);
-        if (!src || w <= 0 || h <= 0) goto store_pending;
-
-        // Clip to target area
-        int copy_w = (w < g_target_w ? w : g_target_w) * 4;
-        int copy_h = h < g_target_h ? h : g_target_h;
-
-        for (int y = 0; y < copy_h; y++) {
-            const uint8_t* s = src + y * src_stride;
-            uint8_t* d = g_frame_target + (g_target_y + y) * g_target_stride + g_target_x * 4;
-            memcpy(d, s, copy_w);
-        }
-        self->has_new_frame = true;
-    }
-
-    // NOTE: do NOT g_bytes_unref(pix) — import_to_pixels returns (transfer none),
-    // the GBytes is owned by the WPEBufferSHM and must not be freed by us.
 
 store_pending:
     // If a previous pending buffer was never processed, release it now
@@ -398,8 +360,23 @@ static void axium_view_init(AxiumView* self)
     self->committed_buffer = NULL;
     self->pending_buffer = NULL;
     self->frame_source_id = 0;
-    self->has_new_frame = false;
 }
+
+// ---------------------------------------------------------------------------
+// AxiumScreen — concrete subclass of WPEScreen (which is abstract/derivable)
+// ---------------------------------------------------------------------------
+typedef struct {
+    WPEScreen parent_instance;
+} AxiumScreen;
+
+typedef struct {
+    WPEScreenClass parent_class;
+} AxiumScreenClass;
+
+G_DEFINE_TYPE(AxiumScreen, axium_screen, WPE_TYPE_SCREEN)
+
+static void axium_screen_class_init(AxiumScreenClass* klass) {}
+static void axium_screen_init(AxiumScreen* self) {}
 
 // ---------------------------------------------------------------------------
 // AxiumToplevel
@@ -441,12 +418,40 @@ static void axium_toplevel_init(AxiumToplevel* self) {}
 // Engine state
 // ---------------------------------------------------------------------------
 static WPEDisplay*    g_display  = NULL;
-static WebKitWebView* g_web_view = NULL;
+
+#define MAX_VIEWS 32
+static WebKitWebView* g_views[MAX_VIEWS];
+static int g_view_count = 0;
+static int g_active_view = -1;
+
+static engine_uri_changed_fn g_uri_changed_cb = NULL;
+static engine_title_changed_fn g_title_changed_cb = NULL;
+
+static WebKitWebView* active_web_view(void)
+{
+    if (g_active_view < 0 || g_active_view >= g_view_count) return NULL;
+    return g_views[g_active_view];
+}
+
+static void on_uri_changed(WebKitWebView* view, GParamSpec* pspec, gpointer data)
+{
+    (void)pspec; (void)data;
+    if (view == active_web_view() && g_uri_changed_cb)
+        g_uri_changed_cb(webkit_web_view_get_uri(view));
+}
+
+static void on_title_changed(WebKitWebView* view, GParamSpec* pspec, gpointer data)
+{
+    (void)pspec; (void)data;
+    if (view == active_web_view() && g_title_changed_cb)
+        g_title_changed_cb(webkit_web_view_get_title(view));
+}
 
 static AxiumView* get_axium_view(void)
 {
-    if (!g_web_view) return NULL;
-    WPEView* wpe_view = webkit_web_view_get_wpe_view(g_web_view);
+    WebKitWebView* wv = active_web_view();
+    if (!wv) return NULL;
+    WPEView* wpe_view = webkit_web_view_get_wpe_view(wv);
     if (!wpe_view) return NULL;
     if (!g_type_is_a(G_OBJECT_TYPE(wpe_view), AXIUM_TYPE_VIEW)) return NULL;
     return AXIUM_VIEW(wpe_view);
@@ -479,46 +484,187 @@ bool engine_init(void)
     return true;
 }
 
-bool engine_create_view(int width, int height)
+void engine_set_screen_info(int width, int height,
+                            int phys_w_mm, int phys_h_mm,
+                            int refresh_rate_mhz, double scale)
 {
-    if (!g_display) return false;
+    if (!g_display) return;
+    AxiumDisplay* self = AXIUM_DISPLAY(g_display);
 
-    g_web_view = WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW,
-                                               "display", g_display, NULL));
-    if (!g_web_view)
-        return false;
+    WPEScreen* scr = WPE_SCREEN(g_object_new(AXIUM_TYPE_SCREEN, "id", 1, NULL));
+    wpe_screen_set_size(scr, width, height);
+    wpe_screen_set_physical_size(scr, phys_w_mm, phys_h_mm);
+    if (refresh_rate_mhz > 0)
+        wpe_screen_set_refresh_rate(scr, refresh_rate_mhz);
+    wpe_screen_set_scale(scr, scale);
 
-    // TODO: fix CA cert trust properly, then remove this
-    WebKitNetworkSession* session = webkit_web_view_get_network_session(g_web_view);
-    if (session)
-        webkit_network_session_set_tls_errors_policy(session, WEBKIT_TLS_ERRORS_POLICY_IGNORE);
+    self->screen = scr;
+    wpe_display_screen_added(g_display, scr);
+}
 
-    g_signal_connect(g_web_view, "web-process-terminated",
+// ---------------------------------------------------------------------------
+// Adblock web process extension setup
+// ---------------------------------------------------------------------------
+
+static char* g_adblock_filter_path = NULL;
+
+static void on_initialize_web_process_extensions(WebKitWebContext* context,
+                                                  gpointer data)
+{
+    (void)data;
+    const char* ext_dir = (const char*)g_object_get_data(G_OBJECT(context), "axium-ext-dir");
+    fprintf(stderr, "[axium-adblock] initialize-web-process-extensions signal fired\n");
+    fprintf(stderr, "[axium-adblock]   ext_dir: %s\n", ext_dir ? ext_dir : "(null)");
+    fprintf(stderr, "[axium-adblock]   filter_path: %s\n", g_adblock_filter_path ? g_adblock_filter_path : "(null)");
+    if (ext_dir)
+        webkit_web_context_set_web_process_extensions_directory(context, ext_dir);
+    if (g_adblock_filter_path)
+        webkit_web_context_set_web_process_extensions_initialization_user_data(
+            context, g_variant_new_string(g_adblock_filter_path));
+}
+
+void engine_init_adblock(const char* ext_dir, const char* filter_path)
+{
+    if (!ext_dir || !filter_path) {
+        fprintf(stderr, "[axium-adblock] engine_init_adblock skipped: ext_dir=%s filter_path=%s\n",
+                ext_dir ? ext_dir : "(null)", filter_path ? filter_path : "(null)");
+        return;
+    }
+
+    fprintf(stderr, "[axium-adblock] engine_init_adblock: ext_dir=%s filter_path=%s\n", ext_dir, filter_path);
+
+    g_adblock_filter_path = g_strdup(filter_path);
+
+    WebKitWebContext* ctx = webkit_web_context_get_default();
+    g_object_set_data_full(G_OBJECT(ctx), "axium-ext-dir",
+                           g_strdup(ext_dir), g_free);
+    g_signal_connect(ctx, "initialize-web-process-extensions",
+                     G_CALLBACK(on_initialize_web_process_extensions), NULL);
+}
+
+int engine_create_view(int width, int height)
+{
+    if (!g_display || g_view_count >= MAX_VIEWS) return -1;
+
+    WebKitWebView* wv;
+    if (g_view_count > 0 && g_views[0]) {
+        wv = WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW,
+                                           "related-view", g_views[0],
+                                           NULL));
+    } else {
+        wv = WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW,
+                                           "display", g_display, NULL));
+    }
+    if (!wv)
+        return -1;
+
+    g_signal_connect(wv, "web-process-terminated",
                      G_CALLBACK(on_web_process_terminated), NULL);
+    g_signal_connect(wv, "notify::uri",
+                     G_CALLBACK(on_uri_changed), NULL);
+    g_signal_connect(wv, "notify::title",
+                     G_CALLBACK(on_title_changed), NULL);
 
-    WPEView* wpe_view = webkit_web_view_get_wpe_view(g_web_view);
+    WPEView* wpe_view = webkit_web_view_get_wpe_view(wv);
     if (!wpe_view) {
-        g_clear_object(&g_web_view);
-        return false;
+        g_clear_object(&wv);
+        return -1;
     }
 
     WPEToplevel* toplevel = wpe_view_get_toplevel(wpe_view);
     if (toplevel)
         wpe_toplevel_resize(toplevel, width, height);
 
-    return true;
+    int idx = g_view_count;
+    g_views[idx] = wv;
+    g_view_count++;
+    return idx;
+}
+
+void engine_destroy_view(int index)
+{
+    if (index < 0 || index >= g_view_count) return;
+
+    g_clear_object(&g_views[index]);
+
+    // Compact array
+    for (int i = index; i < g_view_count - 1; i++)
+        g_views[i] = g_views[i + 1];
+    g_views[g_view_count - 1] = NULL;
+    g_view_count--;
+
+    // Adjust active index
+    if (g_active_view == index)
+        g_active_view = -1;
+    else if (g_active_view > index)
+        g_active_view--;
+}
+
+void engine_set_active_view(int index)
+{
+    if (index < 0 || index >= g_view_count) return;
+
+    // Focus out old view
+    if (g_active_view >= 0 && g_active_view < g_view_count && g_active_view != index) {
+        WebKitWebView* old = g_views[g_active_view];
+        if (old) {
+            WPEView* ov = webkit_web_view_get_wpe_view(old);
+            if (ov) wpe_view_focus_out(ov);
+        }
+    }
+
+    g_active_view = index;
+
+    // Focus in new view
+    WebKitWebView* nv = g_views[index];
+    if (nv) {
+        WPEView* v = webkit_web_view_get_wpe_view(nv);
+        if (v) wpe_view_focus_in(v);
+
+        // Notify Odin of new tab's URI and title
+        if (g_uri_changed_cb)
+            g_uri_changed_cb(webkit_web_view_get_uri(nv));
+        if (g_title_changed_cb)
+            g_title_changed_cb(webkit_web_view_get_title(nv));
+    }
+}
+
+void engine_view_get_uri(int index, const char** uri)
+{
+    *uri = NULL;
+    if (index >= 0 && index < g_view_count && g_views[index])
+        *uri = webkit_web_view_get_uri(g_views[index]);
+}
+
+void engine_view_get_title(int index, const char** title)
+{
+    *title = NULL;
+    if (index >= 0 && index < g_view_count && g_views[index])
+        *title = webkit_web_view_get_title(g_views[index]);
+}
+
+int engine_view_count(void)
+{
+    return g_view_count;
+}
+
+int engine_active_view(void)
+{
+    return g_active_view;
 }
 
 void engine_load_uri(const char* uri)
 {
-    if (g_web_view)
-        webkit_web_view_load_uri(g_web_view, uri);
+    WebKitWebView* wv = active_web_view();
+    if (wv)
+        webkit_web_view_load_uri(wv, uri);
 }
 
 void engine_resize(int width, int height)
 {
-    if (!g_web_view) return;
-    WPEView* wpe_view = webkit_web_view_get_wpe_view(g_web_view);
+    WebKitWebView* wv = active_web_view();
+    if (!wv) return;
+    WPEView* wpe_view = webkit_web_view_get_wpe_view(wv);
     if (!wpe_view) return;
     WPEToplevel* toplevel = wpe_view_get_toplevel(wpe_view);
     if (toplevel)
@@ -530,10 +676,39 @@ void engine_pump(void)
     while (g_main_context_iteration(NULL, FALSE)) {}
 }
 
-bool engine_has_new_frame(void)
+void engine_grab_frame(void)
 {
     AxiumView* view = get_axium_view();
-    return view && view->has_new_frame;
+    if (!view || !view->committed_buffer || !g_frame_target) return;
+
+    WPEBuffer* buffer = view->committed_buffer;
+    int w = wpe_buffer_get_width(buffer);
+    int h = wpe_buffer_get_height(buffer);
+
+    GError* err = NULL;
+    GBytes* pix = wpe_buffer_import_to_pixels(buffer, &err);
+    if (!pix) { g_clear_error(&err); return; }
+
+    int src_stride;
+    if (WPE_IS_BUFFER_SHM(buffer)) {
+        src_stride = (int)wpe_buffer_shm_get_stride(WPE_BUFFER_SHM(buffer));
+    } else {
+        gsize sz = g_bytes_get_size(pix);
+        src_stride = (h > 0) ? (int)(sz / h) : w * 4;
+    }
+
+    gsize pix_size = 0;
+    const uint8_t* src = (const uint8_t*)g_bytes_get_data(pix, &pix_size);
+    if (!src || w <= 0 || h <= 0) return;
+
+    int copy_w = (w < g_target_w ? w : g_target_w) * 4;
+    int copy_h = h < g_target_h ? h : g_target_h;
+
+    for (int y = 0; y < copy_h; y++) {
+        const uint8_t* s = src + y * src_stride;
+        uint8_t* d = g_frame_target + (g_target_y + y) * g_target_stride + g_target_x * 4;
+        memcpy(d, s, copy_w);
+    }
 }
 
 void engine_set_frame_target(uint8_t* buffer, int buf_stride,
@@ -553,8 +728,9 @@ void engine_set_frame_target(uint8_t* buffer, int buf_stride,
 
 static WPEView* get_wpe_view(void)
 {
-    if (!g_web_view) return NULL;
-    return webkit_web_view_get_wpe_view(g_web_view);
+    WebKitWebView* wv = active_web_view();
+    if (!wv) return NULL;
+    return webkit_web_view_get_wpe_view(wv);
 }
 
 static guint32 now_ms(void)
@@ -692,11 +868,12 @@ int engine_get_cursor(void)
 
 void engine_editing_command(const char* command, const char* argument)
 {
-    if (!g_web_view || !command) return;
+    WebKitWebView* wv = active_web_view();
+    if (!wv || !command) return;
     if (argument)
-        webkit_web_view_execute_editing_command_with_argument(g_web_view, command, argument);
+        webkit_web_view_execute_editing_command_with_argument(wv, command, argument);
     else
-        webkit_web_view_execute_editing_command(g_web_view, command);
+        webkit_web_view_execute_editing_command(wv, command);
 }
 
 void engine_set_clipboard_callbacks(engine_clipboard_set_fn set_fn,
@@ -706,40 +883,57 @@ void engine_set_clipboard_callbacks(engine_clipboard_set_fn set_fn,
     g_clipboard_get = get_fn;
 }
 
+void engine_set_navigation_callbacks(engine_uri_changed_fn uri_fn,
+                                     engine_title_changed_fn title_fn)
+{
+    g_uri_changed_cb = uri_fn;
+    g_title_changed_cb = title_fn;
+}
+
 void engine_go_back(void)
 {
-    if (g_web_view && webkit_web_view_can_go_back(g_web_view))
-        webkit_web_view_go_back(g_web_view);
+    WebKitWebView* wv = active_web_view();
+    if (wv && webkit_web_view_can_go_back(wv))
+        webkit_web_view_go_back(wv);
 }
 
 void engine_go_forward(void)
 {
-    if (g_web_view && webkit_web_view_can_go_forward(g_web_view))
-        webkit_web_view_go_forward(g_web_view);
+    WebKitWebView* wv = active_web_view();
+    if (wv && webkit_web_view_can_go_forward(wv))
+        webkit_web_view_go_forward(wv);
 }
 
 void engine_reload(void)
 {
-    if (g_web_view)
-        webkit_web_view_reload(g_web_view);
+    WebKitWebView* wv = active_web_view();
+    if (wv)
+        webkit_web_view_reload(wv);
 }
 
 void engine_get_uri(const char** uri)
 {
     *uri = NULL;
-    if (g_web_view)
-        *uri = webkit_web_view_get_uri(g_web_view);
+    WebKitWebView* wv = active_web_view();
+    if (wv)
+        *uri = webkit_web_view_get_uri(wv);
 }
 
 void engine_get_title(const char** title)
 {
     *title = NULL;
-    if (g_web_view)
-        *title = webkit_web_view_get_title(g_web_view);
+    WebKitWebView* wv = active_web_view();
+    if (wv)
+        *title = webkit_web_view_get_title(wv);
 }
 
 void engine_shutdown(void)
 {
-    g_clear_object(&g_web_view);
+    for (int i = 0; i < g_view_count; i++)
+        g_clear_object(&g_views[i]);
+    g_view_count = 0;
+    g_active_view = -1;
     g_clear_object(&g_display);
+    g_free(g_adblock_filter_path);
+    g_adblock_filter_path = NULL;
 }

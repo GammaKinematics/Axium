@@ -7,5 +7,33 @@
         "Ctrl_L+A": "select_all"
         "Ctrl_L+Z": "undo"
         "Ctrl_L+Shift_L+Z": "redo"
+        "Ctrl_L+T": "tab_new"
+        "Ctrl_L+W": "tab_close"
+        "Ctrl_L+Tab": "tab_next"
+        "Ctrl_L+Shift_L+Tab": "tab_prev"
+        "Ctrl_L+N1": "tab_select 0"
+        "Ctrl_L+N2": "tab_select 1"
+        "Ctrl_L+N3": "tab_select 2"
+        "Ctrl_L+N4": "tab_select 3"
+        "Ctrl_L+N5": "tab_select 4"
+        "Ctrl_L+N6": "tab_select 5"
+        "Ctrl_L+N7": "tab_select 6"
+        "Ctrl_L+N8": "tab_select 7"
+        "Ctrl_L+N9": "tab_select 8"
+    }
+    edges: {
+        hover_distance: 5
+        top: [
+            {
+                show: "always"
+                overlay: false
+                widgets: ["tabs"]
+            }
+            {
+                show: "always"
+                overlay: false
+                widgets: ["back" "forward" "reload" "spacer" "url" "copy" "spacer" "menu"]
+            }
+        ]
     }
 }

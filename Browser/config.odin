@@ -6,7 +6,22 @@ import "core:encoding/json"
 
 CONFIG_PATH :: #config(CONFIG_PATH, "~/.config/axium/config.sjson")
 
+default_top := [?]Edge{
+    {
+        show    = .always,
+        overlay = false,
+        widgets = {"tabs"},
+    },
+    {
+        show    = .always,
+        overlay = false,
+        widgets = {"back", "forward", "reload", "spacer", "url", "copy", "spacer", "menu"},
+    },
+}
+
 config_load :: proc() {
+    edges[.top] = default_top[:]
+
     path := CONFIG_PATH
     if len(path) > 0 && path[0] == '~' {
         home := os.get_env("HOME")
@@ -26,12 +41,5 @@ config_load :: proc() {
     parse_bindings(root["keybindings"].(json.Object) or_else nil, &bindings)
     parse_theme(root["theme"].(json.Object) or_else nil)
     parse_font(root["font"].(json.Object) or_else nil)
-    parse_ui(root["ui"].(json.Object) or_else nil)
-}
-
-parse_ui :: proc(obj: json.Object) {
-    if obj == nil do return
-    if hd, ok := obj["hover_distance"].(json.Integer); ok {
-        hover_distance = i32(hd)
-    }
+    edge_parse_config(root["edges"].(json.Object) or_else nil)
 }

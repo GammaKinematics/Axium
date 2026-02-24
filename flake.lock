@@ -1,5 +1,18 @@
 {
   "nodes": {
+    "adblock-rust": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1771942390,
+        "narHash": "sha256-5av9aS2P4lYgbIzZbvQ009WNFi2OIjHY8xWrEoxIQDU=",
+        "path": "/data/Browser/adblock-rust",
+        "type": "path"
+      },
+      "original": {
+        "path": "/data/Browser/adblock-rust",
+        "type": "path"
+      }
+    },
     "bindings-onix": {
       "inputs": {
         "nixpkgs": [
@@ -19,13 +32,37 @@
     },
     "display-onix": {
       "locked": {
-        "lastModified": 1771586578,
-        "narHash": "sha256-Dj+59EpEI/GMLsEXAwbWZC5MhCMcUp1ifLhRQUNk5xs=",
+        "lastModified": 1771936085,
+        "narHash": "sha256-tN3fTCF6u0XVEB6Fsy0ivKtor0445b0pWAws7UcUeu8=",
         "path": "/data/Browser/Display-Onix",
         "type": "path"
       },
       "original": {
         "path": "/data/Browser/Display-Onix",
+        "type": "path"
+      }
+    },
+    "easylist": {
+      "flake": false,
+      "locked": {
+        "narHash": "sha256-TzlcUsDI2A7PKHcOaMp29DQjasxChfMP4io7tcXa3Do=",
+        "type": "file",
+        "url": "https://easylist.to/easylist/easylist.txt"
+      },
+      "original": {
+        "type": "file",
+        "url": "https://easylist.to/easylist/easylist.txt"
+      }
+    },
+    "edge-onix": {
+      "locked": {
+        "lastModified": 1771779284,
+        "narHash": "sha256-0aVUrmzlVZKrkRFotHi6ekTHY1l+rTvLd87wVdMd+LQ=",
+        "path": "/data/Browser/Edge-Onix",
+        "type": "path"
+      },
+      "original": {
+        "path": "/data/Browser/Edge-Onix",
         "type": "path"
       }
     },
@@ -49,8 +86,8 @@
         ]
       },
       "locked": {
-        "lastModified": 1771659189,
-        "narHash": "sha256-5rkqYKifF3NNUkkUnCru9/PbL7R9tiGdMvKVz25wh9U=",
+        "lastModified": 1771784623,
+        "narHash": "sha256-Tp7GPhV3IlIIKlmq4UxDFELhEYAPzjr9iv1nq4FHZZE=",
         "path": "/data/Browser/LVGL-Onix",
         "type": "path"
       },
@@ -94,8 +131,11 @@
     },
     "root": {
       "inputs": {
+        "adblock-rust": "adblock-rust",
         "bindings-onix": "bindings-onix",
         "display-onix": "display-onix",
+        "easylist": "easylist",
+        "edge-onix": "edge-onix",
         "font-onix": "font-onix",
         "lvgl-onix": "lvgl-onix",
         "nixpkgs": "nixpkgs",

@@ -1,9 +1,10 @@
 { pkgs, engine, display-onix, generatedBindings
-, lvgl, lvglBindings, themeOdin, fontOdin, font-onix, generatedUI
+, lvgl, lvglBindings, themeOdin, fontOdin, font-onix, edgeSources
+, adblock, easylist
 }:
 
 let
-  displaySources = display-onix.lib.sources { backend = "x11"; package = "display"; };
+  displaySources = display-onix.lib.sources { backend = "x11"; package = "axium"; };
   displayDeps = display-onix.lib.deps "x11" pkgs;
   displayLinkFlags = display-onix.lib.linkFlags "x11" pkgs;
 in
@@ -19,19 +20,18 @@ pkgs.stdenv.mkDerivation {
   ];
 
   buildInputs = [
-    engine
+    engine.webkit
+    engine.shim
     lvgl
     pkgs.glib
     pkgs.libsoup_3      # required by wpe-webkit-2.0.pc
     pkgs.libxkbcommon   # WPEKeymapXKB.h
-    pkgs.libglvnd       # EGL headers + libs
   ] ++ displayDeps ++ lvgl.passthru.deps ++ (font-onix.lib.deps pkgs);
 
   buildPhase = ''
     # Copy Display-Onix backend source
-    mkdir -p display
     for f in ${builtins.concatStringsSep " " displaySources}; do
-      cp "$f" display/
+      cp "$f" ./
     done
 
     # Copy generated bindings
@@ -41,19 +41,17 @@ pkgs.stdenv.mkDerivation {
     cp ${lvglBindings} ./lvgl.odin
     cp ${themeOdin} ./theme_gen.odin
     cp ${fontOdin} ./font_gen.odin
-    cp ${generatedUI} ./ui.odin
+    for f in ${builtins.concatStringsSep " " edgeSources}; do
+      cp "$f" ./
+    done
 
-    # Compile WPE2 C shim
-    cc -c wpe_shim.c -o wpe_shim.o \
-      $(pkg-config --cflags wpe-webkit-2.0 wpe-platform-2.0 glib-2.0 gobject-2.0) \
-      -I${pkgs.libglvnd.dev}/include
-    ar rcs libwpe_shim.a wpe_shim.o
+    # Copy engine Odin bindings
+    cp ${engine.odinBindings} ./engine.odin
 
     # Build with Odin
     odin build . -out:axium -debug \
-      -extra-linker-flags:"-L$(pwd) \
+      -extra-linker-flags:"-L${engine.shim}/lib \
         ${displayLinkFlags} \
-        -L${pkgs.libglvnd}/lib -lEGL \
         ${lvgl}/lib/liblvgl.a \
         ${lvgl.passthru.linkFlags} \
         $(pkg-config --libs wpe-webkit-2.0 wpe-platform-2.0 glib-2.0 gobject-2.0) \
@@ -65,13 +63,19 @@ pkgs.stdenv.mkDerivation {
     mkdir -p $out/bin
     cp axium $out/bin/
 
+    mkdir -p $out/lib/axium/extensions
+    cp ${adblock}/lib/libaxium_adblock_ext.so $out/lib/axium/extensions/
+
     mv $out/bin/axium $out/bin/.axium-unwrapped
     cat > $out/bin/axium << WRAPPER
     #!/bin/sh
-    export WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
     export GIO_EXTRA_MODULES=${pkgs.glib-networking}/lib/gio/modules
+    export GIO_USE_TLS=gnutls
     export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
     export GNUTLS_SYSTEM_TRUST_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
+    export GST_PLUGIN_PATH=${pkgs.gst_all_1.gst-plugins-base}/lib/gstreamer-1.0:${pkgs.gst_all_1.gst-plugins-good}/lib/gstreamer-1.0:${pkgs.gst_all_1.gst-plugins-bad}/lib/gstreamer-1.0
+    export AXIUM_EXT_DIR="\$(dirname "\$0")/../lib/axium/extensions"
+    export AXIUM_FILTERS="\''${AXIUM_FILTERS:-${easylist}}"
     exec "\$(dirname "\$0")/.axium-unwrapped" "\$@"
     WRAPPER
     chmod +x $out/bin/axium

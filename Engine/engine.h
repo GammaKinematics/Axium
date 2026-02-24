@@ -8,8 +8,22 @@
 // Initialize engine: creates WPE display with headless EGL
 bool engine_init(void);
 
-// Create a web view at given dimensions
-bool engine_create_view(int width, int height);
+// Create a web view at given dimensions, returns view index (-1 on failure)
+int engine_create_view(int width, int height);
+
+// Destroy a view by index (compacts array, does NOT pick new active)
+void engine_destroy_view(int index);
+
+// Set the active view (focus out old, focus in new)
+void engine_set_active_view(int index);
+
+// Query any view by index
+void engine_view_get_uri(int index, const char** uri);
+void engine_view_get_title(int index, const char** title);
+
+// View count and active index
+int engine_view_count(void);
+int engine_active_view(void);
 
 // Navigate to a URI
 void engine_load_uri(const char* uri);
@@ -20,8 +34,8 @@ void engine_resize(int width, int height);
 // Pump GLib event loop (call once per frame)
 void engine_pump(void);
 
-// Check if a new frame arrived from the web process
-bool engine_has_new_frame(void);
+// Copy the last committed frame to the render target
+void engine_grab_frame(void);
 
 // Set direct render target — WebKit pixels copied here in render_buffer
 void engine_set_frame_target(uint8_t* buffer, int buf_stride,
@@ -54,6 +68,20 @@ void engine_go_forward(void);
 void engine_reload(void);
 void engine_get_uri(const char** uri);
 void engine_get_title(const char** title);
+
+// Navigation callbacks — called when active view's URI or title changes
+typedef void (*engine_uri_changed_fn)(const char* uri);
+typedef void (*engine_title_changed_fn)(const char* title);
+void engine_set_navigation_callbacks(engine_uri_changed_fn uri_fn,
+                                     engine_title_changed_fn title_fn);
+
+// Set screen properties (from Display-Onix RANDR query) — creates WPEScreen
+void engine_set_screen_info(int width, int height,
+                            int phys_w_mm, int phys_h_mm,
+                            int refresh_rate_mhz, double scale);
+
+// Configure adblock web process extension (must be called BEFORE engine_create_view)
+void engine_init_adblock(const char* ext_dir, const char* filter_path);
 
 // Shut down engine and release resources
 void engine_shutdown(void);

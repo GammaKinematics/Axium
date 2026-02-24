@@ -20,14 +20,25 @@
     };
     theme-onix.url = "path:/data/Browser/Theme-Onix";
     font-onix.url = "path:/data/Browser/Font-Onix";
+    edge-onix.url = "path:/data/Browser/Edge-Onix";
+
+    adblock-rust = {
+      url = "path:/data/Browser/adblock-rust";
+      flake = false;
+    };
+
+    easylist = {
+      url = "https://easylist.to/easylist/easylist.txt";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs, webkit, display-onix, bindings-onix, lvgl-onix, theme-onix, font-onix }:
+  outputs = { self, nixpkgs, webkit, display-onix, bindings-onix, lvgl-onix, theme-onix, font-onix, edge-onix, adblock-rust, easylist }:
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
 
-      engine = import ./Engine {
+      engine = import ./Engine/engine.nix {
         inherit pkgs webkit;
         optimize = false;
         march = null;
@@ -47,9 +58,11 @@
         displayFormat = "xrgb8888";
         widgets = ["button" "label" "textarea"];
         iconCodes = [
+          "F00D"  # CLOSE
           "F021"  # REFRESH
           "F053"  # LEFT
           "F054"  # RIGHT
+          "F067"  # PLUS
           "F0C5"  # COPY
           "F0C9"  # BARS
         ];
@@ -68,15 +81,19 @@
         font = { name = "sans-serif"; path = ""; sizes = { base = 14; }; };
       };
 
-      generatedUI = pkgs.writeText "ui.odin" (import ./Browser/UI/ui.nix {});
+      edgeSources = edge-onix.lib.sources;
+
+      adblock = import ./Adblock/adblock.nix { inherit pkgs adblock-rust engine; };
 
     in {
       packages.${system} = rec {
-        inherit engine;
+        inherit adblock;
+        inherit (engine) webkit shim;
 
-        browser = import ./Browser {
+        browser = import ./Browser/browser.nix {
           inherit pkgs engine display-onix generatedBindings
-                  lvgl lvglBindings themeOdin fontOdin font-onix generatedUI;
+                  lvgl lvglBindings themeOdin fontOdin font-onix edgeSources
+                  adblock easylist;
         };
 
         default = browser;
@@ -84,7 +101,7 @@
 
       devShells.${system}.default = pkgs.mkShell {
         packages = with pkgs; [ odin gdb ];
-        inputsFrom = [ self.packages.${system}.engine ];
+        inputsFrom = [ engine.webkit ];
       };
     };
 }

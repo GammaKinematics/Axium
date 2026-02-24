@@ -22,6 +22,10 @@ pub struct AdblockResult {
     pub important: bool,
     /// Redirect URL if applicable (null if none)
     pub redirect: *mut c_char,
+    /// Rewritten URL from $removeparam rules (null if none)
+    pub rewritten_url: *mut c_char,
+    /// Matched exception rule (null if none)
+    pub exception: *mut c_char,
     /// Matching filter for debugging (null if none)
     pub filter: *mut c_char,
 }
@@ -92,6 +96,8 @@ pub unsafe extern "C" fn adblock_check_request(
         matched: false,
         important: false,
         redirect: ptr::null_mut(),
+        rewritten_url: ptr::null_mut(),
+        exception: ptr::null_mut(),
         filter: ptr::null_mut(),
     };
 
@@ -127,6 +133,16 @@ pub unsafe extern "C" fn adblock_check_request(
             .and_then(|r| CString::new(r).ok())
             .map(|c| c.into_raw())
             .unwrap_or(ptr::null_mut()),
+        rewritten_url: result
+            .rewritten_url
+            .and_then(|r| CString::new(r).ok())
+            .map(|c| c.into_raw())
+            .unwrap_or(ptr::null_mut()),
+        exception: result
+            .exception
+            .and_then(|e| CString::new(e).ok())
+            .map(|c| c.into_raw())
+            .unwrap_or(ptr::null_mut()),
         filter: result
             .filter
             .and_then(|f| CString::new(f).ok())
@@ -146,6 +162,29 @@ pub unsafe extern "C" fn adblock_string_free(s: *mut c_char) {
     }
 }
 
+/// Create an adblock engine from a filter list in EasyList format (one rule per line)
+///
+/// # Safety
+/// `filter_list` must be a valid null-terminated C string containing filter rules
+#[no_mangle]
+pub unsafe extern "C" fn adblock_engine_from_filter_list(
+    filter_list: *const c_char,
+) -> *mut AdblockEngine {
+    if filter_list.is_null() {
+        return adblock_engine_new();
+    }
+
+    let text = match CStr::from_ptr(filter_list).to_str() {
+        Ok(s) => s,
+        Err(_) => return adblock_engine_new(),
+    };
+
+    let rules: Vec<String> = text.lines().map(String::from).collect();
+    let engine = Engine::from_rules(rules, ParseOptions::default());
+    let wrapper = Box::new(AdblockEngine { engine });
+    Box::into_raw(wrapper)
+}
+
 /// Free an AdblockResult's allocated strings
 ///
 /// # Safety
@@ -154,8 +193,12 @@ pub unsafe extern "C" fn adblock_string_free(s: *mut c_char) {
 pub unsafe extern "C" fn adblock_result_free(result: *mut AdblockResult) {
     if !result.is_null() {
         adblock_string_free((*result).redirect);
+        adblock_string_free((*result).rewritten_url);
+        adblock_string_free((*result).exception);
         adblock_string_free((*result).filter);
         (*result).redirect = ptr::null_mut();
+        (*result).rewritten_url = ptr::null_mut();
+        (*result).exception = ptr::null_mut();
         (*result).filter = ptr::null_mut();
     }
 }
