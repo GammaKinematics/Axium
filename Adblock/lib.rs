@@ -5,6 +5,7 @@
 use adblock::lists::{FilterSet, ParseOptions};
 use adblock::request::Request;
 use adblock::Engine;
+use std::collections::HashSet;
 use std::ffi::{c_char, CStr, CString};
 use std::ptr;
 
@@ -200,5 +201,166 @@ pub unsafe extern "C" fn adblock_result_free(result: *mut AdblockResult) {
         (*result).rewritten_url = ptr::null_mut();
         (*result).exception = ptr::null_mut();
         (*result).filter = ptr::null_mut();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Cosmetic filtering
+// ---------------------------------------------------------------------------
+
+/// Cosmetic filtering resources for a specific URL
+#[repr(C)]
+pub struct CosmeticResources {
+    /// CSS rule string: "sel1,sel2{display:none!important}" (null if empty)
+    pub hide_selectors: *mut c_char,
+    /// JavaScript code for scriptlet injection (null if empty)
+    pub injected_script: *mut c_char,
+    /// JSON-encoded exceptions array for 2nd-pass class/id filtering (null if empty)
+    pub exceptions_json: *mut c_char,
+    /// If true, skip generic cosmetic rules (no MutationObserver needed)
+    pub generichide: bool,
+}
+
+/// Get cosmetic filtering resources for a page URL
+///
+/// # Safety
+/// - `engine` must be a valid pointer to an AdblockEngine
+/// - `url` must be a valid null-terminated C string
+#[no_mangle]
+pub unsafe extern "C" fn adblock_url_cosmetic_resources(
+    engine: *const AdblockEngine,
+    url: *const c_char,
+) -> CosmeticResources {
+    let empty = CosmeticResources {
+        hide_selectors: ptr::null_mut(),
+        injected_script: ptr::null_mut(),
+        exceptions_json: ptr::null_mut(),
+        generichide: false,
+    };
+
+    if engine.is_null() || url.is_null() {
+        return empty;
+    }
+
+    let url_str = match CStr::from_ptr(url).to_str() {
+        Ok(s) => s,
+        Err(_) => return empty,
+    };
+
+    let res = (*engine).engine.url_cosmetic_resources(url_str);
+
+    let hide_selectors = if res.hide_selectors.is_empty() {
+        ptr::null_mut()
+    } else {
+        let selectors: Vec<&str> = res.hide_selectors.iter().map(|s| s.as_str()).collect();
+        let css = format!("{}{{display:none!important}}", selectors.join(","));
+        CString::new(css)
+            .map(|c| c.into_raw())
+            .unwrap_or(ptr::null_mut())
+    };
+
+    let injected_script = if res.injected_script.is_empty() {
+        ptr::null_mut()
+    } else {
+        CString::new(res.injected_script)
+            .map(|c| c.into_raw())
+            .unwrap_or(ptr::null_mut())
+    };
+
+    let exceptions_json = if res.exceptions.is_empty() {
+        ptr::null_mut()
+    } else {
+        serde_json::to_string(&res.exceptions)
+            .ok()
+            .and_then(|json| CString::new(json).ok())
+            .map(|c| c.into_raw())
+            .unwrap_or(ptr::null_mut())
+    };
+
+    CosmeticResources {
+        hide_selectors,
+        injected_script,
+        exceptions_json,
+        generichide: res.generichide,
+    }
+}
+
+/// Get additional CSS hide rules for classes/ids found on the page (2nd pass)
+///
+/// Returns a CSS rule string "sel1,sel2{display:none!important}" or null if no matches.
+///
+/// # Safety
+/// - `engine` must be a valid pointer to an AdblockEngine
+/// - JSON string parameters must be valid null-terminated C strings or null
+#[no_mangle]
+pub unsafe extern "C" fn adblock_hidden_class_id_selectors(
+    engine: *const AdblockEngine,
+    classes_json: *const c_char,
+    ids_json: *const c_char,
+    exceptions_json: *const c_char,
+) -> *mut c_char {
+    if engine.is_null() {
+        return ptr::null_mut();
+    }
+
+    let classes: Vec<String> = if !classes_json.is_null() {
+        CStr::from_ptr(classes_json)
+            .to_str()
+            .ok()
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    let ids: Vec<String> = if !ids_json.is_null() {
+        CStr::from_ptr(ids_json)
+            .to_str()
+            .ok()
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    let exceptions: HashSet<String> = if !exceptions_json.is_null() {
+        CStr::from_ptr(exceptions_json)
+            .to_str()
+            .ok()
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or_default()
+    } else {
+        HashSet::new()
+    };
+
+    let selectors = (*engine).engine.hidden_class_id_selectors(
+        classes.iter().map(String::as_str),
+        ids.iter().map(String::as_str),
+        &exceptions,
+    );
+
+    if selectors.is_empty() {
+        return ptr::null_mut();
+    }
+
+    let css = format!("{}{{display:none!important}}", selectors.join(","));
+    CString::new(css)
+        .map(|c| c.into_raw())
+        .unwrap_or(ptr::null_mut())
+}
+
+/// Free a CosmeticResources struct's allocated strings
+///
+/// # Safety
+/// `result` must be a valid pointer to a CosmeticResources
+#[no_mangle]
+pub unsafe extern "C" fn adblock_cosmetic_resources_free(result: *mut CosmeticResources) {
+    if !result.is_null() {
+        adblock_string_free((*result).hide_selectors);
+        adblock_string_free((*result).injected_script);
+        adblock_string_free((*result).exceptions_json);
+        (*result).hide_selectors = ptr::null_mut();
+        (*result).injected_script = ptr::null_mut();
+        (*result).exceptions_json = ptr::null_mut();
     }
 }

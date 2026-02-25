@@ -513,9 +513,6 @@ static void on_initialize_web_process_extensions(WebKitWebContext* context,
 {
     (void)data;
     const char* ext_dir = (const char*)g_object_get_data(G_OBJECT(context), "axium-ext-dir");
-    fprintf(stderr, "[axium-adblock] initialize-web-process-extensions signal fired\n");
-    fprintf(stderr, "[axium-adblock]   ext_dir: %s\n", ext_dir ? ext_dir : "(null)");
-    fprintf(stderr, "[axium-adblock]   filter_path: %s\n", g_adblock_filter_path ? g_adblock_filter_path : "(null)");
     if (ext_dir)
         webkit_web_context_set_web_process_extensions_directory(context, ext_dir);
     if (g_adblock_filter_path)
@@ -525,13 +522,8 @@ static void on_initialize_web_process_extensions(WebKitWebContext* context,
 
 void engine_init_adblock(const char* ext_dir, const char* filter_path)
 {
-    if (!ext_dir || !filter_path) {
-        fprintf(stderr, "[axium-adblock] engine_init_adblock skipped: ext_dir=%s filter_path=%s\n",
-                ext_dir ? ext_dir : "(null)", filter_path ? filter_path : "(null)");
+    if (!ext_dir || !filter_path)
         return;
-    }
-
-    fprintf(stderr, "[axium-adblock] engine_init_adblock: ext_dir=%s filter_path=%s\n", ext_dir, filter_path);
 
     g_adblock_filter_path = g_strdup(filter_path);
 

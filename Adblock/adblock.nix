@@ -37,6 +37,7 @@ pkgs.rustPlatform.buildRustPackage {
 
     [dependencies]
     adblock = { path = ".." }
+    serde_json = "1"
     EOF
 
     # Add ffi to existing workspace members
