@@ -51,7 +51,12 @@ foreign engine {
         refresh_rate_mhz: c.int,
         scale: c.double,
     ) ---
-    engine_init_adblock      :: proc(ext_dir: cstring, filter_path: cstring) ---
+    engine_init_adblock      :: proc(ext_dir: cstring, adblock_dir: cstring) ---
+    engine_run_javascript    :: proc(script: cstring) ---
+    engine_evaluate_javascript :: proc(
+        script: cstring,
+        callback: proc "c" (result: cstring),
+    ) ---
     engine_shutdown          :: proc() ---
 }
 

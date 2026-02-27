@@ -19,6 +19,7 @@ execute_command :: proc(cmd: string, pressed: bool = true) {
     case "tab_close":   if pressed do tab_close(active_tab)
     case "tab_next":    if pressed do tab_next()
     case "tab_prev":    if pressed do tab_prev()
+    case "keepass":     if pressed do keepass_trigger()
     case:
         idx := strings.index_byte(cmd, ' ')
         name := cmd[:idx] if idx >= 0 else cmd

@@ -2,6 +2,12 @@ package axium
 
 import "base:runtime"
 
+// FontAwesome icons
+ICON_BAN     :: "\xef\x81\x9e"  // U+F05E
+ICON_SHUFFLE :: "\xef\x81\xb4"  // U+F074
+ICON_KEY     :: "\xef\x82\x84"  // U+F084
+ICON_SAVE    :: "\xef\x83\x87"  // U+F0C7
+
 url_input: ^lv_obj_t
 
 // --- Widget factories ---
@@ -98,7 +104,35 @@ widget_menu :: proc(parent: ^lv_obj_t) {
 
 on_open_menu :: proc "c" (e: ^lv_event_t) {
     context = runtime.default_context()
-    // TODO: implement menu panel
+    if popup_is_active() { popup_dismiss(); return }
+
+    anchor := (^lv_obj_t)(lv_event_get_target(e))
+    panel := lv_obj_create(lv_layer_top())
+    lv_obj_set_size(panel, 200, 100)
+    lv_obj_set_style_bg_color(panel, lv_color_hex(theme_bg_sec), 0)
+    lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, 0)
+    lv_obj_set_style_radius(panel, theme_radius, 0)
+    lv_obj_remove_flag(panel, .LV_OBJ_FLAG_SCROLLABLE)
+    lbl := lv_label_create(panel)
+    lv_label_set_text(lbl, "Menu placeholder")
+    lv_obj_center(lbl)
+
+    popup_show(panel, anchor)
+}
+
+widget_keepass :: proc(parent: ^lv_obj_t) {
+    btn := lv_button_create(parent)
+    lv_obj_add_event_cb(btn, on_keepass_click, .LV_EVENT_CLICKED, nil)
+    lbl := lv_label_create(btn)
+    lv_label_set_text(lbl, ICON_KEY)
+    if icon_font != nil { lv_obj_set_style_text_font(lbl, icon_font, 0) }
+    lv_obj_center(lbl)
+    keepass_popup_anchor = btn
+}
+
+on_keepass_click :: proc "c" (e: ^lv_event_t) {
+    context = runtime.default_context()
+    keepass_trigger()
 }
 
 // --- Registration ---
@@ -109,6 +143,7 @@ widgets_init :: proc() {
     edge_register_widget("reload", widget_reload)
     edge_register_widget("url", widget_url)
     edge_register_widget("copy", widget_copy_url)
+    edge_register_widget("keepass", widget_keepass)
     edge_register_widget("menu", widget_menu)
     edge_register_widget("tabs", widget_tabs)
 }

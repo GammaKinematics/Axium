@@ -1,6 +1,6 @@
 { pkgs, engine, display-onix, generatedBindings
 , lvgl, lvglBindings, themeOdin, fontOdin, font-onix, edgeSources
-, adblock, easylist
+, adblock, keepass
 }:
 
 let
@@ -26,7 +26,7 @@ pkgs.stdenv.mkDerivation {
     pkgs.glib
     pkgs.libsoup_3      # required by wpe-webkit-2.0.pc
     pkgs.libxkbcommon   # WPEKeymapXKB.h
-  ] ++ displayDeps ++ lvgl.passthru.deps ++ (font-onix.lib.deps pkgs);
+  ] ++ displayDeps ++ lvgl.passthru.deps ++ (font-onix.lib.deps pkgs) ++ keepass.buildInputs;
 
   buildPhase = ''
     # Copy Display-Onix backend source
@@ -45,6 +45,11 @@ pkgs.stdenv.mkDerivation {
       cp "$f" ./
     done
 
+    # Copy keepass sources
+    for f in ${builtins.concatStringsSep " " keepass.sources}; do
+      cp "$f" ./
+    done
+
     # Copy engine Odin bindings
     cp ${engine.odinBindings} ./engine.odin
 
@@ -56,6 +61,7 @@ pkgs.stdenv.mkDerivation {
         ${lvgl.passthru.linkFlags} \
         $(pkg-config --libs wpe-webkit-2.0 wpe-platform-2.0 glib-2.0 gobject-2.0) \
         ${font-onix.lib.linkFlags pkgs} \
+        ${keepass.linkFlags} \
         -lm -lstdc++"
   '';
 
@@ -64,7 +70,7 @@ pkgs.stdenv.mkDerivation {
     cp axium $out/bin/
 
     mkdir -p $out/lib/axium/extensions
-    cp ${adblock}/lib/libaxium_adblock_ext.so $out/lib/axium/extensions/
+    cp ${adblock.ext}/lib/libaxium_adblock_ext.so $out/lib/axium/extensions/
 
     mv $out/bin/axium $out/bin/.axium-unwrapped
     cat > $out/bin/axium << WRAPPER
@@ -75,7 +81,7 @@ pkgs.stdenv.mkDerivation {
     export GNUTLS_SYSTEM_TRUST_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
     export GST_PLUGIN_PATH=${pkgs.gst_all_1.gst-plugins-base}/lib/gstreamer-1.0:${pkgs.gst_all_1.gst-plugins-good}/lib/gstreamer-1.0:${pkgs.gst_all_1.gst-plugins-bad}/lib/gstreamer-1.0
     export AXIUM_EXT_DIR="\$(dirname "\$0")/../lib/axium/extensions"
-    export AXIUM_FILTERS="\''${AXIUM_FILTERS:-${easylist}}"
+    export AXIUM_ADBLOCK_DIR="\''${AXIUM_ADBLOCK_DIR:-${adblock.resources}/share/adblock}"
     exec "\$(dirname "\$0")/.axium-unwrapped" "\$@"
     WRAPPER
     chmod +x $out/bin/axium

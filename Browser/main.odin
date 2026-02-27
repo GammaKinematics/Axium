@@ -44,9 +44,9 @@ main :: proc() {
 
     // Configure adblock web process extension (must be before engine_create_view)
     ext_dir := posix.getenv("AXIUM_EXT_DIR")
-    filter_path := posix.getenv("AXIUM_FILTERS")
-    if ext_dir != nil && filter_path != nil {
-        engine_init_adblock(ext_dir, filter_path)
+    adblock_dir := posix.getenv("AXIUM_ADBLOCK_DIR")
+    if ext_dir != nil && adblock_dir != nil {
+        engine_init_adblock(ext_dir, adblock_dir)
     }
 
     engine_init_clipboard()
@@ -90,6 +90,7 @@ main :: proc() {
     }
 
     // Build edge containers on lv_layer_top()
+    keepass_init()
     widgets_init()
     bounds := edge_init()
     content_area = bounds
@@ -113,7 +114,7 @@ main :: proc() {
         bounds.w, bounds.h,
     )
 
-    engine_load_uri("https://en.wikipedia.org/wiki/WebKit")
+    engine_load_uri("https://www.google.com")
     tab_bar_rebuild()
 
     // Main loop
@@ -143,17 +144,26 @@ main :: proc() {
                 handle_resize(lv_disp)
                 pending_resize = nil
             }
+            engine_pump()
+            pfd := posix.pollfd{fd = posix.FD(display_fd()), events = {.IN}}
+            posix.poll(&pfd, 1, 5)
             continue  // Skip rendering while framebuffer is being resized
         }
 
-        ms := lv_timer_handler()  // LVGL renders chrome (may overwrite content area)
-        engine_pump()             // WebKit processes events, may produce new frame
+        engine_pump()
+
+        // Don't touch the framebuffer while X server is still reading it
+        if display_present_pending() {
+            pfd := posix.pollfd{fd = posix.FD(display_fd()), events = {.IN}}
+            posix.poll(&pfd, 1, 5)
+            continue
+        }
+
+        lv_timer_handler()        // Step LVGL internal state (animations, cursor blink)
         engine_grab_frame()       // Copy WebKit frame to framebuffer
         edge_invalidate_overlays()
+        popup_invalidate()
         lv_refr_now(lv_disp)     // Redraw overlay edges on top of WebKit
-        if ms == 0xFFFFFFFF {
-            ms = 5
-        }
 
         // Update cursor if WebKit changed it
         cursor := engine_get_cursor()
@@ -163,8 +173,19 @@ main :: proc() {
 
         display_present()
 
-        // Idle until input arrives or LVGL timer fires
-        pfd := posix.pollfd{fd = posix.FD(display_fd()), events = {.IN}}
-        posix.poll(&pfd, 1, c.int(ms))
+        // Sleep until X events or keepass socket data arrives
+        kfd := keepass_fd()
+        if kfd >= 0 {
+            pfds: [2]posix.pollfd
+            pfds[0] = {fd = posix.FD(display_fd()), events = {.IN}}
+            pfds[1] = {fd = posix.FD(kfd), events = {.IN}}
+            posix.poll(&pfds[0], 2, -1)
+            if .IN in pfds[1].revents {
+                keepass_on_response_ready()
+            }
+        } else {
+            pfd := posix.pollfd{fd = posix.FD(display_fd()), events = {.IN}}
+            posix.poll(&pfd, 1, -1)
+        }
     }
 }

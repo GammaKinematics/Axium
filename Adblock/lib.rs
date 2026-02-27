@@ -2,9 +2,13 @@
 //!
 //! Exposes adblock-rust functionality via C-compatible API for use from Odin.
 
-use adblock::lists::{FilterSet, ParseOptions};
+use adblock::lists::ParseOptions;
 use adblock::request::Request;
 use adblock::Engine;
+use adblock::resources::resource_assembler::{
+    assemble_web_accessible_resources,
+    assemble_scriptlet_resources,
+};
 use std::collections::HashSet;
 use std::ffi::{c_char, CStr, CString};
 use std::ptr;
@@ -182,8 +186,33 @@ pub unsafe extern "C" fn adblock_engine_from_filter_list(
 
     let rules: Vec<String> = text.lines().map(String::from).collect();
     let engine = Engine::from_rules(rules, ParseOptions::default());
+
     let wrapper = Box::new(AdblockEngine { engine });
     Box::into_raw(wrapper)
+}
+
+/// Create an adblock engine by deserializing a pre-compiled .dat blob
+///
+/// Returns null on failure (corrupt data, version mismatch, etc.)
+///
+/// # Safety
+/// `data` must be a valid pointer to `len` bytes of serialized engine data
+#[no_mangle]
+pub unsafe extern "C" fn adblock_engine_deserialize(
+    data: *const u8,
+    len: usize,
+) -> *mut AdblockEngine {
+    if data.is_null() || len == 0 {
+        return ptr::null_mut();
+    }
+
+    let bytes = std::slice::from_raw_parts(data, len);
+    let mut engine = Engine::default();
+
+    match engine.deserialize(bytes) {
+        Ok(()) => Box::into_raw(Box::new(AdblockEngine { engine })),
+        Err(_) => ptr::null_mut(),
+    }
 }
 
 /// Free an AdblockResult's allocated strings
@@ -205,6 +234,97 @@ pub unsafe extern "C" fn adblock_result_free(result: *mut AdblockResult) {
 }
 
 // ---------------------------------------------------------------------------
+// Resource loading from files (redirect resources + scriptlets)
+// ---------------------------------------------------------------------------
+
+/// Load redirect resources and scriptlets from disk into the engine.
+///
+/// # Safety
+/// - `engine` must be a valid pointer to an AdblockEngine
+/// - `resource_dir` must be a valid null-terminated path to the web_accessible_resources directory
+/// - `redirect_resources` must be a valid null-terminated path to redirect-resources.js
+/// - `scriptlets` may be null; if non-null, must be a valid path to scriptlets.js
+#[no_mangle]
+pub unsafe extern "C" fn adblock_engine_load_resources(
+    engine: *mut AdblockEngine,
+    resource_dir: *const c_char,
+    redirect_resources: *const c_char,
+    scriptlets: *const c_char,
+) -> bool {
+    if engine.is_null() || resource_dir.is_null() || redirect_resources.is_null() {
+        return false;
+    }
+
+    let engine = &mut *engine;
+
+    let resource_dir = match CStr::from_ptr(resource_dir).to_str() {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    let redirect_path = match CStr::from_ptr(redirect_resources).to_str() {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    #[allow(deprecated)]
+    let mut resources = assemble_web_accessible_resources(
+        &std::path::Path::new(resource_dir),
+        &std::path::Path::new(redirect_path),
+    );
+
+    if !scriptlets.is_null() {
+        if let Ok(scriptlets_path) = CStr::from_ptr(scriptlets).to_str() {
+            #[allow(deprecated)]
+            let scriptlet_resources = assemble_scriptlet_resources(
+                &std::path::Path::new(scriptlets_path),
+            );
+            resources.extend(scriptlet_resources);
+        }
+    }
+
+    engine.engine.use_resources(resources);
+    true
+}
+
+// ---------------------------------------------------------------------------
+// CSP directives
+// ---------------------------------------------------------------------------
+
+/// Get CSP directives that should be injected for a given page URL
+///
+/// Returns a comma-separated string of CSP directives, or null if none apply.
+///
+/// # Safety
+/// - `engine` must be a valid pointer to an AdblockEngine
+/// - `url` must be a valid null-terminated C string
+#[no_mangle]
+pub unsafe extern "C" fn adblock_get_csp_directives(
+    engine: *const AdblockEngine,
+    url: *const c_char,
+) -> *mut c_char {
+    if engine.is_null() || url.is_null() {
+        return ptr::null_mut();
+    }
+
+    let url_str = match CStr::from_ptr(url).to_str() {
+        Ok(s) => s,
+        Err(_) => return ptr::null_mut(),
+    };
+
+    let request = match Request::new(url_str, url_str, "document") {
+        Ok(r) => r,
+        Err(_) => return ptr::null_mut(),
+    };
+
+    match (*engine).engine.get_csp_directives(&request) {
+        Some(directives) if !directives.is_empty() => CString::new(directives)
+            .map(|c| c.into_raw())
+            .unwrap_or(ptr::null_mut()),
+        _ => ptr::null_mut(),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Cosmetic filtering
 // ---------------------------------------------------------------------------
 
@@ -217,6 +337,8 @@ pub struct CosmeticResources {
     pub injected_script: *mut c_char,
     /// JSON-encoded exceptions array for 2nd-pass class/id filtering (null if empty)
     pub exceptions_json: *mut c_char,
+    /// JSON-encoded procedural cosmetic filter actions (null if empty)
+    pub procedural_actions: *mut c_char,
     /// If true, skip generic cosmetic rules (no MutationObserver needed)
     pub generichide: bool,
 }
@@ -235,6 +357,7 @@ pub unsafe extern "C" fn adblock_url_cosmetic_resources(
         hide_selectors: ptr::null_mut(),
         injected_script: ptr::null_mut(),
         exceptions_json: ptr::null_mut(),
+        procedural_actions: ptr::null_mut(),
         generichide: false,
     };
 
@@ -277,10 +400,23 @@ pub unsafe extern "C" fn adblock_url_cosmetic_resources(
             .unwrap_or(ptr::null_mut())
     };
 
+    let procedural_actions = if res.procedural_actions.is_empty() {
+        ptr::null_mut()
+    } else {
+        // Serialize the HashSet<String> as a JSON array
+        // Each entry is already a JSON-encoded ProceduralOrActionFilter
+        let items: Vec<&str> = res.procedural_actions.iter().map(|s| s.as_str()).collect();
+        let json = format!("[{}]", items.join(","));
+        CString::new(json)
+            .map(|c| c.into_raw())
+            .unwrap_or(ptr::null_mut())
+    };
+
     CosmeticResources {
         hide_selectors,
         injected_script,
         exceptions_json,
+        procedural_actions,
         generichide: res.generichide,
     }
 }
@@ -359,8 +495,10 @@ pub unsafe extern "C" fn adblock_cosmetic_resources_free(result: *mut CosmeticRe
         adblock_string_free((*result).hide_selectors);
         adblock_string_free((*result).injected_script);
         adblock_string_free((*result).exceptions_json);
+        adblock_string_free((*result).procedural_actions);
         (*result).hide_selectors = ptr::null_mut();
         (*result).injected_script = ptr::null_mut();
         (*result).exceptions_json = ptr::null_mut();
+        (*result).procedural_actions = ptr::null_mut();
     }
 }

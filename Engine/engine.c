@@ -506,7 +506,7 @@ void engine_set_screen_info(int width, int height,
 // Adblock web process extension setup
 // ---------------------------------------------------------------------------
 
-static char* g_adblock_filter_path = NULL;
+static char* g_adblock_dir = NULL;
 
 static void on_initialize_web_process_extensions(WebKitWebContext* context,
                                                   gpointer data)
@@ -515,17 +515,17 @@ static void on_initialize_web_process_extensions(WebKitWebContext* context,
     const char* ext_dir = (const char*)g_object_get_data(G_OBJECT(context), "axium-ext-dir");
     if (ext_dir)
         webkit_web_context_set_web_process_extensions_directory(context, ext_dir);
-    if (g_adblock_filter_path)
+    if (g_adblock_dir)
         webkit_web_context_set_web_process_extensions_initialization_user_data(
-            context, g_variant_new_string(g_adblock_filter_path));
+            context, g_variant_new_string(g_adblock_dir));
 }
 
-void engine_init_adblock(const char* ext_dir, const char* filter_path)
+void engine_init_adblock(const char* ext_dir, const char* adblock_dir)
 {
-    if (!ext_dir || !filter_path)
+    if (!ext_dir || !adblock_dir)
         return;
 
-    g_adblock_filter_path = g_strdup(filter_path);
+    g_adblock_dir = g_strdup(adblock_dir);
 
     WebKitWebContext* ctx = webkit_web_context_get_default();
     g_object_set_data_full(G_OBJECT(ctx), "axium-ext-dir",
@@ -919,6 +919,48 @@ void engine_get_title(const char** title)
         *title = webkit_web_view_get_title(wv);
 }
 
+void engine_run_javascript(const char* script)
+{
+    WebKitWebView* wv = active_web_view();
+    if (!wv || !script) return;
+    webkit_web_view_evaluate_javascript(wv, script, -1, NULL, NULL, NULL, NULL, NULL);
+}
+
+static void js_eval_finished(GObject* source, GAsyncResult* result, gpointer user_data)
+{
+    engine_js_result_fn callback = (engine_js_result_fn)user_data;
+    GError* error = NULL;
+    JSCValue* value = webkit_web_view_evaluate_javascript_finish(
+        WEBKIT_WEB_VIEW(source), result, &error);
+
+    if (error) {
+        g_clear_error(&error);
+        if (callback) callback(NULL);
+        return;
+    }
+
+    if (value && jsc_value_is_string(value)) {
+        char* str = jsc_value_to_string(value);
+        if (callback) callback(str);
+        g_free(str);
+    } else {
+        if (callback) callback(NULL);
+    }
+
+    if (value) g_object_unref(value);
+}
+
+void engine_evaluate_javascript(const char* script, engine_js_result_fn callback)
+{
+    WebKitWebView* wv = active_web_view();
+    if (!wv || !script) {
+        if (callback) callback(NULL);
+        return;
+    }
+    webkit_web_view_evaluate_javascript(wv, script, -1, NULL, NULL, NULL,
+                                        js_eval_finished, (gpointer)callback);
+}
+
 void engine_shutdown(void)
 {
     for (int i = 0; i < g_view_count; i++)
@@ -926,6 +968,6 @@ void engine_shutdown(void)
     g_view_count = 0;
     g_active_view = -1;
     g_clear_object(&g_display);
-    g_free(g_adblock_filter_path);
-    g_adblock_filter_path = NULL;
+    g_free(g_adblock_dir);
+    g_adblock_dir = NULL;
 }

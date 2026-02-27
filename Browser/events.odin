@@ -108,6 +108,19 @@ poll_events :: proc() {
 
             px, py := i32(e.x), i32(e.y)
 
+            // Popup intercept: clicks go to popup or dismiss it
+            if e.button >= 1 && e.button <= 3 && popup_is_active() {
+                if popup_hit_test(px, py) {
+                    content_has_focus = false
+                    input_mouse_x = px
+                    input_mouse_y = py
+                    input_mouse_pressed = e.pressed
+                } else {
+                    popup_dismiss()
+                }
+                continue
+            }
+
             // Scroll events (buttons 4-7) always go to WebKit if in content
             if e.button >= 4 && e.button <= 7 {
                 if e.pressed && in_content_area(px, py) {

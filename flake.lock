@@ -32,32 +32,20 @@
     },
     "display-onix": {
       "locked": {
-        "lastModified": 1771936085,
-        "narHash": "sha256-tN3fTCF6u0XVEB6Fsy0ivKtor0445b0pWAws7UcUeu8=",
+        "lastModified": 1772055309,
+        "narHash": "sha256-O2GJkay6HjDSqMe9MweACLp6GACNf7yAbr1XVXqk0S8=",
         "path": "/data/Browser/Display-Onix",
         "type": "path"
       },
       "original": {
         "path": "/data/Browser/Display-Onix",
         "type": "path"
-      }
-    },
-    "easylist": {
-      "flake": false,
-      "locked": {
-        "narHash": "sha256-TzlcUsDI2A7PKHcOaMp29DQjasxChfMP4io7tcXa3Do=",
-        "type": "file",
-        "url": "https://easylist.to/easylist/easylist.txt"
-      },
-      "original": {
-        "type": "file",
-        "url": "https://easylist.to/easylist/easylist.txt"
       }
     },
     "edge-onix": {
       "locked": {
-        "lastModified": 1771779284,
-        "narHash": "sha256-0aVUrmzlVZKrkRFotHi6ekTHY1l+rTvLd87wVdMd+LQ=",
+        "lastModified": 1772055300,
+        "narHash": "sha256-NTcOl7VVsb40GXTkc2yDPnpsJPmf72eUPKW1XnlaefM=",
         "path": "/data/Browser/Edge-Onix",
         "type": "path"
       },
@@ -86,8 +74,8 @@
         ]
       },
       "locked": {
-        "lastModified": 1771784623,
-        "narHash": "sha256-Tp7GPhV3IlIIKlmq4UxDFELhEYAPzjr9iv1nq4FHZZE=",
+        "lastModified": 1772208079,
+        "narHash": "sha256-cxhk7Al+bc9HD3qTfPg8IPcOsmPMkLXfa+LxJ+2EZms=",
         "path": "/data/Browser/LVGL-Onix",
         "type": "path"
       },
@@ -134,25 +122,60 @@
         "adblock-rust": "adblock-rust",
         "bindings-onix": "bindings-onix",
         "display-onix": "display-onix",
-        "easylist": "easylist",
         "edge-onix": "edge-onix",
         "font-onix": "font-onix",
         "lvgl-onix": "lvgl-onix",
         "nixpkgs": "nixpkgs",
         "theme-onix": "theme-onix",
+        "uassets": "uassets",
+        "ublock": "ublock",
         "webkit": "webkit"
       }
     },
     "theme-onix": {
       "locked": {
-        "lastModified": 1771619686,
-        "narHash": "sha256-MXudYlIAAe3u/D5WzcICGVSES25iLBgaDcoPDWAq3y8=",
+        "lastModified": 1772204826,
+        "narHash": "sha256-6gHB4+P9GNlMilol/NFppE6KfkUYytzNWKqR6PplOeA=",
         "path": "/data/Browser/Theme-Onix",
         "type": "path"
       },
       "original": {
         "path": "/data/Browser/Theme-Onix",
         "type": "path"
+      }
+    },
+    "uassets": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1772027804,
+        "narHash": "sha256-o6QTcJvPkzeEeg9xKpLKRPp2JNlq6392mmWgcxyizpg=",
+        "ref": "refs/heads/master",
+        "rev": "5a2ea6d14486f0c456f5757dfeb9502a523756f6",
+        "shallow": true,
+        "type": "git",
+        "url": "https://github.com/uBlockOrigin/uAssets"
+      },
+      "original": {
+        "shallow": true,
+        "type": "git",
+        "url": "https://github.com/uBlockOrigin/uAssets"
+      }
+    },
+    "ublock": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1771941557,
+        "narHash": "sha256-DdzPyhzo3Yvk0O3abP1VDVeS+6xGJl/dpCAlIYQVySA=",
+        "ref": "refs/heads/master",
+        "rev": "8f544e53bcfeb444677d6497ce186af7663efb58",
+        "shallow": true,
+        "type": "git",
+        "url": "https://github.com/gorhill/uBlock"
+      },
+      "original": {
+        "shallow": true,
+        "type": "git",
+        "url": "https://github.com/gorhill/uBlock"
       }
     },
     "webkit": {

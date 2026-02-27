@@ -11,6 +11,7 @@
         "Ctrl_L+W": "tab_close"
         "Ctrl_L+Tab": "tab_next"
         "Ctrl_L+Shift_L+Tab": "tab_prev"
+        "Ctrl_L+K": "keepass"
         "Ctrl_L+N1": "tab_select 0"
         "Ctrl_L+N2": "tab_select 1"
         "Ctrl_L+N3": "tab_select 2"
@@ -32,7 +33,7 @@
             {
                 show: "always"
                 overlay: false
-                widgets: ["back" "forward" "reload" "spacer" "url" "copy" "spacer" "menu"]
+                widgets: ["back" "forward" "reload" "spacer" "url" "copy" "keepass" "spacer" "menu"]
             }
         ]
     }

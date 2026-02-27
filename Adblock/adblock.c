@@ -9,6 +9,7 @@
 #include <jsc/jsc.h>
 #include <gmodule.h>
 #include <stdio.h>
+#include <string.h>
 
 // ---------------------------------------------------------------------------
 // adblock-rust FFI declarations (from libaxium_adblock.so)
@@ -26,13 +27,13 @@ typedef struct {
 } AdblockResult;
 
 typedef struct {
-    char*  hide_selectors;    // CSS: "sel1,sel2{display:none!important}"
-    char*  injected_script;   // ready-to-execute JS scriptlets
-    char*  exceptions_json;   // JSON array for 2nd-pass filtering
-    _Bool  generichide;       // skip generic rules if true
+    char*  hide_selectors;      // CSS: "sel1,sel2{display:none!important}"
+    char*  injected_script;     // ready-to-execute JS scriptlets
+    char*  exceptions_json;     // JSON array for 2nd-pass filtering
+    char*  procedural_actions;  // JSON array of procedural filter objects
+    _Bool  generichide;         // skip generic rules if true
 } CosmeticResources;
 
-extern AdblockEngine*    adblock_engine_from_filter_list(const char* filter_list);
 extern void              adblock_engine_free(AdblockEngine* engine);
 extern AdblockResult     adblock_check_request(const AdblockEngine* engine,
                                                const char* url,
@@ -46,13 +47,74 @@ extern char*             adblock_hidden_class_id_selectors(const AdblockEngine* 
                                                            const char* ids_json,
                                                            const char* exceptions_json);
 extern void              adblock_cosmetic_resources_free(CosmeticResources* result);
+extern char*             adblock_get_csp_directives(const AdblockEngine* engine,
+                                                     const char* url);
 extern void              adblock_string_free(char* s);
+extern _Bool             adblock_engine_load_resources(AdblockEngine* engine,
+                                                        const char* resource_dir,
+                                                        const char* redirect_resources,
+                                                        const char* scriptlets);
+extern AdblockEngine*    adblock_engine_deserialize(const unsigned char* data,
+                                                     unsigned long len);
 
 // ---------------------------------------------------------------------------
 // Global state
 // ---------------------------------------------------------------------------
 
 static AdblockEngine* g_engine = NULL;
+
+// ---------------------------------------------------------------------------
+// Request type detection from URL extension
+// ---------------------------------------------------------------------------
+
+static const char*
+detect_request_type(const char* url)
+{
+    // Find the path end (before ? or #)
+    const char* path_end = url;
+    const char* p;
+    for (p = url; *p; p++) {
+        if (*p == '?' || *p == '#')
+            break;
+        path_end = p + 1;
+    }
+
+    // Find last dot in the path portion
+    const char* dot = NULL;
+    for (p = url; p < path_end; p++) {
+        if (*p == '.')
+            dot = p;
+        else if (*p == '/')
+            dot = NULL;  // reset on path separator
+    }
+
+    if (!dot)
+        return "other";
+
+    const char* ext = dot + 1;
+    size_t ext_len = (size_t)(path_end - ext);
+
+    // Match extension (case-insensitive via lowercase check)
+    #define EXT_IS(s) (ext_len == sizeof(s) - 1 && g_ascii_strncasecmp(ext, s, ext_len) == 0)
+
+    if (EXT_IS("js") || EXT_IS("mjs"))
+        return "script";
+    if (EXT_IS("css"))
+        return "stylesheet";
+    if (EXT_IS("png") || EXT_IS("jpg") || EXT_IS("jpeg") || EXT_IS("gif") ||
+        EXT_IS("webp") || EXT_IS("svg") || EXT_IS("ico") || EXT_IS("avif"))
+        return "image";
+    if (EXT_IS("woff") || EXT_IS("woff2") || EXT_IS("ttf") || EXT_IS("otf") || EXT_IS("eot"))
+        return "font";
+    if (EXT_IS("mp4") || EXT_IS("webm") || EXT_IS("ogg") || EXT_IS("mp3") || EXT_IS("m4a"))
+        return "media";
+    if (EXT_IS("html") || EXT_IS("htm"))
+        return "subdocument";
+
+    #undef EXT_IS
+
+    return "other";
+}
 
 // ---------------------------------------------------------------------------
 // send-request handler — return TRUE to block the request
@@ -75,9 +137,22 @@ on_send_request(WebKitWebPage    *page,
     if (!url || !page_url)
         return FALSE;
 
-    AdblockResult result = adblock_check_request(g_engine, url, page_url, "other");
-    gboolean block = result.matched && !result.exception;
+    const char* request_type = detect_request_type(url);
+    AdblockResult result = adblock_check_request(g_engine, url, page_url, request_type);
 
+    if (result.redirect) {
+        webkit_uri_request_set_uri(request, result.redirect);
+        adblock_result_free(&result);
+        return FALSE;
+    }
+
+    if (result.rewritten_url) {
+        webkit_uri_request_set_uri(request, result.rewritten_url);
+        adblock_result_free(&result);
+        return FALSE;
+    }
+
+    gboolean block = result.matched && !result.exception;
     adblock_result_free(&result);
 
     return block;
@@ -123,9 +198,6 @@ on_hidden_selectors(GPtrArray* args, gpointer user_data)
 
     char* css = adblock_hidden_class_id_selectors(g_engine, classes_json, ids_json,
                                                    data->exceptions_json);
-
-    if (css)
-        fprintf(stderr, "[axium-cosmetic]   2nd-pass: %zu new bytes of CSS\n", strlen(css));
 
     g_free(classes_json);
     g_free(ids_json);
@@ -190,6 +262,151 @@ static const char MUTATION_OBSERVER_JS[] =
     "});"
     "})()";
 
+// Procedural cosmetic filter JS engine
+// Handles: css-selector, has-text, matches-css/-before/-after, upward, xpath,
+//          min-text-length, matches-attr, matches-path
+// Actions: null (hide), remove, style, remove-attr, remove-class
+static const char PROCEDURAL_ENGINE_JS[] =
+    "function __axiumRunProcedural(json){"
+      "try{var filters=JSON.parse(json);}catch(e){return;}"
+      "function applyFilter(f){"
+        "var els=null;"
+        "for(var i=0;i<f.selector.length;i++){"
+          "var step=f.selector[i],t=step.type,a=step.arg;"
+          "if(t==='css-selector'){"
+            "if(els===null){"
+              "els=Array.from(document.querySelectorAll(a));"
+            "}else{"
+              "var next=[];"
+              "for(var j=0;j<els.length;j++){"
+                "var sub=els[j].querySelectorAll(a);"
+                "for(var k=0;k<sub.length;k++)next.push(sub[k]);"
+              "}"
+              "els=next;"
+            "}"
+          "}else if(t==='has-text'){"
+            "if(els===null)els=Array.from(document.querySelectorAll('*'));"
+            "var re;"
+            "try{"
+              "if(a.charAt(0)==='/'&&a.lastIndexOf('/')>0){"
+                "var li=a.lastIndexOf('/');"
+                "re=new RegExp(a.substring(1,li),a.substring(li+1));"
+              "}else{re=new RegExp(a);}"
+            "}catch(e){return;}"
+            "els=els.filter(function(el){return re.test(el.textContent);});"
+          "}else if(t==='matches-css'||t==='matches-css-before'||t==='matches-css-after'){"
+            "if(els===null)els=Array.from(document.querySelectorAll('*'));"
+            "var pseudo=t==='matches-css-before'?'::before':t==='matches-css-after'?'::after':null;"
+            "var ci=a.indexOf(':');"
+            "if(ci<0)continue;"
+            "var prop=a.substring(0,ci).trim(),valPat=a.substring(ci+1).trim();"
+            "var valRe;"
+            "try{"
+              "if(valPat.charAt(0)==='/'&&valPat.lastIndexOf('/')>0){"
+                "var vli=valPat.lastIndexOf('/');"
+                "valRe=new RegExp(valPat.substring(1,vli),valPat.substring(vli+1));"
+              "}else{valRe=new RegExp(valPat);}"
+            "}catch(e){return;}"
+            "els=els.filter(function(el){"
+              "var cs=getComputedStyle(el,pseudo);"
+              "return valRe.test(cs.getPropertyValue(prop));"
+            "});"
+          "}else if(t==='upward'){"
+            "if(els===null)els=[];"
+            "var n=parseInt(a,10);"
+            "if(!isNaN(n)&&n>0){"
+              "els=els.map(function(el){"
+                "for(var u=0;u<n&&el;u++)el=el.parentElement;"
+                "return el;"
+              "}).filter(Boolean);"
+            "}else{"
+              "els=els.map(function(el){return el.closest(a);}).filter(Boolean);"
+            "}"
+          "}else if(t==='xpath'){"
+            "if(els===null){"
+              "var xr=document.evaluate(a,document,null,XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,null);"
+              "els=[];for(var xi=0;xi<xr.snapshotLength;xi++){"
+                "var xn=xr.snapshotItem(xi);"
+                "if(xn.nodeType===1)els.push(xn);"
+              "}"
+            "}else{"
+              "var next=[];"
+              "for(var j=0;j<els.length;j++){"
+                "var xr=document.evaluate(a,els[j],null,XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,null);"
+                "for(var xi=0;xi<xr.snapshotLength;xi++){"
+                  "var xn=xr.snapshotItem(xi);"
+                  "if(xn.nodeType===1)next.push(xn);"
+                "}"
+              "}"
+              "els=next;"
+            "}"
+          "}else if(t==='min-text-length'){"
+            "if(els===null)els=Array.from(document.querySelectorAll('*'));"
+            "var minLen=parseInt(a,10)||0;"
+            "els=els.filter(function(el){return el.textContent.length>=minLen;});"
+          "}else if(t==='matches-attr'){"
+            "if(els===null)els=Array.from(document.querySelectorAll('*'));"
+            "var eqi=a.indexOf('=');"
+            "var attrPat,valPat2;"
+            "if(eqi>=0){attrPat=a.substring(0,eqi);valPat2=a.substring(eqi+1);}"
+            "else{attrPat=a;valPat2='';}"
+            "function mkRe(s){"
+              "s=s.replace(/^\"/,'').replace(/\"$/,'');"
+              "if(s.charAt(0)==='/'&&s.lastIndexOf('/')>0){"
+                "var li=s.lastIndexOf('/');return new RegExp(s.substring(1,li),s.substring(li+1));"
+              "}return new RegExp('^'+s.replace(/[.*+?^${}()|[\\]\\\\]/g,'\\\\$&').replace(/\\\\\\*/g,'.*')+'$');"
+            "}"
+            "try{var attrRe=mkRe(attrPat),valRe2=mkRe(valPat2);}catch(e){return;}"
+            "els=els.filter(function(el){"
+              "for(var ai=0;ai<el.attributes.length;ai++){"
+                "var at=el.attributes[ai];"
+                "if(attrRe.test(at.name)&&valRe2.test(at.value))return true;"
+              "}return false;"
+            "});"
+          "}else if(t==='matches-path'){"
+            "try{"
+              "var pathRe=new RegExp(a);"
+              "if(!pathRe.test(location.pathname+location.search))return;"
+            "}catch(e){return;}"
+          "}"
+        "}"
+        "if(!els||!els.length)return;"
+        "var act=f.action;"
+        "for(var i=0;i<els.length;i++){"
+          "var el=els[i];"
+          "if(!act){"
+            "el.style.setProperty('display','none','important');"
+          "}else if(act.type==='remove'){"
+            "el.remove();"
+          "}else if(act.type==='style'){"
+            "var pairs=act.arg.split(';');"
+            "for(var p=0;p<pairs.length;p++){"
+              "var kv=pairs[p].split(':');"
+              "if(kv.length>=2){"
+                "var k=kv[0].trim(),v=kv.slice(1).join(':').trim();"
+                "var imp=v.indexOf('!important')>=0;"
+                "if(imp)v=v.replace('!important','').trim();"
+                "el.style.setProperty(k,v,imp?'important':'');"
+              "}"
+            "}"
+          "}else if(act.type==='remove-attr'){"
+            "el.removeAttribute(act.arg);"
+          "}else if(act.type==='remove-class'){"
+            "el.classList.remove(act.arg);"
+          "}"
+        "}"
+      "}"
+      "function run(){"
+        "for(var i=0;i<filters.length;i++){"
+          "try{applyFilter(filters[i]);}catch(e){}"
+        "}"
+      "}"
+      "run();"
+      "new MutationObserver(function(){run();}).observe("
+        "document.documentElement,{childList:true,subtree:true}"
+      ");"
+    "}";
+
 // document-loaded handler — inject cosmetic filters
 static void
 on_document_loaded(WebKitWebPage *page, gpointer data)
@@ -202,18 +419,6 @@ on_document_loaded(WebKitWebPage *page, gpointer data)
     if (!page_url) return;
 
     CosmeticResources resources = adblock_url_cosmetic_resources(g_engine, page_url);
-
-    fprintf(stderr, "[axium-cosmetic] %s — selectors:%s script:%s generichide:%d\n",
-            page_url,
-            resources.hide_selectors ? "yes" : "no",
-            resources.injected_script ? "yes" : "no",
-            resources.generichide);
-
-    // Nothing to do?
-    if (!resources.hide_selectors && !resources.injected_script && resources.generichide) {
-        adblock_cosmetic_resources_free(&resources);
-        return;
-    }
 
     WebKitFrame* frame = webkit_web_page_get_main_frame(page);
     if (!frame) {
@@ -238,8 +443,6 @@ on_document_loaded(WebKitWebPage *page, gpointer data)
         JSCValue* css_val = jsc_value_new_string(ctx, resources.hide_selectors);
         jsc_value_object_set_property(style_elem, "textContent", css_val);
         g_object_unref(css_val);
-        fprintf(stderr, "[axium-cosmetic]   injected %zu bytes of hide CSS\n",
-                strlen(resources.hide_selectors));
     }
     g_clear_object(&style_elem);
 
@@ -247,13 +450,45 @@ on_document_loaded(WebKitWebPage *page, gpointer data)
     if (resources.injected_script) {
         JSCValue* r = jsc_context_evaluate(ctx, resources.injected_script, -1);
         g_clear_object(&r);
-        fprintf(stderr, "[axium-cosmetic]   injected %zu bytes of scriptlets\n",
-                strlen(resources.injected_script));
     }
 
-    // 3. Set up MutationObserver for 2nd-pass generic hide rules
+    // 3. CSP directive injection via <meta> tag
+    {
+        char* csp = adblock_get_csp_directives(g_engine, page_url);
+        if (csp) {
+            JSCValue* meta = jsc_context_evaluate(ctx,
+                "var _m=document.createElement('meta');"
+                "_m.httpEquiv='Content-Security-Policy';"
+                "(document.head||document.documentElement).appendChild(_m);"
+                "_m", -1);
+            if (meta && jsc_value_is_object(meta)) {
+                JSCValue* csp_val = jsc_value_new_string(ctx, csp);
+                jsc_value_object_set_property(meta, "content", csp_val);
+                g_object_unref(csp_val);
+            }
+            g_clear_object(&meta);
+            adblock_string_free(csp);
+        }
+    }
+
+    // 4. Procedural cosmetic filters
+    if (resources.procedural_actions) {
+        // Define the procedural engine
+        JSCValue* r = jsc_context_evaluate(ctx, PROCEDURAL_ENGINE_JS, -1);
+        g_clear_object(&r);
+
+        // Pass JSON safely via JSC property (avoids string escaping issues)
+        JSCValue* json_val = jsc_value_new_string(ctx, resources.procedural_actions);
+        jsc_context_set_value(ctx, "__axiumProceduralJSON", json_val);
+        g_object_unref(json_val);
+
+        r = jsc_context_evaluate(ctx,
+            "__axiumRunProcedural(__axiumProceduralJSON);", -1);
+        g_clear_object(&r);
+    }
+
+    // 5. Set up MutationObserver for 2nd-pass generic hide rules
     if (!resources.generichide) {
-        fprintf(stderr, "[axium-cosmetic]   installing MutationObserver for 2nd-pass\n");
         PageCosmeticData* cosmetic_data = g_new0(PageCosmeticData, 1);
         cosmetic_data->exceptions_json = resources.exceptions_json
             ? g_strdup(resources.exceptions_json) : NULL;
@@ -318,39 +553,57 @@ webkit_web_process_extension_initialize_with_user_data(
     WebKitWebProcessExtension *extension,
     const GVariant            *user_data)
 {
-    // user_data contains the filter file path as a string
+    // user_data contains the adblock data directory path as a string
     if (!user_data || !g_variant_is_of_type((GVariant*)user_data, G_VARIANT_TYPE_STRING)) {
-        fprintf(stderr, "[axium-adblock] no filter path provided, adblock disabled\n");
+        fprintf(stderr, "[axium-adblock] no adblock dir provided, adblock disabled\n");
         return;
     }
 
-    const char* filter_path = g_variant_get_string((GVariant*)user_data, NULL);
-    if (!filter_path || !*filter_path) {
-        fprintf(stderr, "[axium-adblock] empty filter path, adblock disabled\n");
+    const char* dir = g_variant_get_string((GVariant*)user_data, NULL);
+    if (!dir || !*dir) {
+        fprintf(stderr, "[axium-adblock] empty adblock dir, adblock disabled\n");
         return;
     }
 
-    // Read filter list from file
-    char*  contents = NULL;
-    gsize  len = 0;
-    GError* error = NULL;
-    if (!g_file_get_contents(filter_path, &contents, &len, &error)) {
-        fprintf(stderr, "[axium-adblock] failed to read %s: %s\n",
-                filter_path, error ? error->message : "unknown error");
-        g_clear_error(&error);
-        return;
+    char* dat_path = g_build_filename(dir, "engine.dat", NULL);
+    char* resource_dir = g_build_filename(dir, "resources", NULL);
+    char* redirect_res = g_build_filename(dir, "redirect-resources.js", NULL);
+    char* scriptlets_path = g_build_filename(dir, "scriptlets.js", NULL);
+
+    // Deserialize pre-compiled engine
+    char* dat_data = NULL;
+    gsize dat_len = 0;
+    if (!g_file_get_contents(dat_path, &dat_data, &dat_len, NULL)) {
+        fprintf(stderr, "[axium-adblock] failed to read %s, adblock disabled\n", dat_path);
+        goto cleanup;
     }
 
-    // Create adblock engine from filter list
-    g_engine = adblock_engine_from_filter_list(contents);
-    g_free(contents);
+    g_engine = adblock_engine_deserialize((const unsigned char*)dat_data, dat_len);
+    g_free(dat_data);
 
     if (!g_engine) {
-        fprintf(stderr, "[axium-adblock] failed to create engine\n");
-        return;
+        fprintf(stderr, "[axium-adblock] failed to deserialize engine from %s\n", dat_path);
+        goto cleanup;
     }
 
-    fprintf(stderr, "[axium-adblock] engine loaded from %s\n", filter_path);
+    // Load redirect resources + scriptlets
+    {
+        const char* scriptlets_arg = g_file_test(scriptlets_path, G_FILE_TEST_EXISTS)
+            ? scriptlets_path : NULL;
+
+        if (g_file_test(resource_dir, G_FILE_TEST_IS_DIR) &&
+            g_file_test(redirect_res, G_FILE_TEST_EXISTS))
+            adblock_engine_load_resources(g_engine, resource_dir, redirect_res, scriptlets_arg);
+    }
+
+cleanup:
+    g_free(dat_path);
+    g_free(resource_dir);
+    g_free(redirect_res);
+    g_free(scriptlets_path);
+
+    if (!g_engine)
+        return;
 
     // Connect to page-created signal
     g_signal_connect(extension, "page-created",

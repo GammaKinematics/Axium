@@ -27,13 +27,17 @@
       flake = false;
     };
 
-    easylist = {
-      url = "https://easylist.to/easylist/easylist.txt";
+    uassets = {
+      url = "git+https://github.com/uBlockOrigin/uAssets?shallow=1";
+      flake = false;
+    };
+    ublock = {
+      url = "git+https://github.com/gorhill/uBlock?shallow=1";
       flake = false;
     };
   };
 
-  outputs = { self, nixpkgs, webkit, display-onix, bindings-onix, lvgl-onix, theme-onix, font-onix, edge-onix, adblock-rust, easylist }:
+  outputs = { self, nixpkgs, webkit, display-onix, bindings-onix, lvgl-onix, theme-onix, font-onix, edge-onix, adblock-rust, uassets, ublock }:
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
@@ -55,15 +59,18 @@
       lvgl = lvgl-onix.lib.mkLvgl {
         hostPkgs = pkgs;
         inherit pkgs;
-        displayFormat = "xrgb8888";
         widgets = ["button" "label" "textarea"];
         iconCodes = [
           "F00D"  # CLOSE
           "F021"  # REFRESH
           "F053"  # LEFT
           "F054"  # RIGHT
+          "F05E"  # BAN
           "F067"  # PLUS
+          "F074"  # RANDOM/SHUFFLE
+          "F084"  # KEY
           "F0C5"  # COPY
+          "F0C7"  # SAVE
           "F0C9"  # BARS
         ];
         iconSizes = [ 14 ];
@@ -83,17 +90,19 @@
 
       edgeSources = edge-onix.lib.sources;
 
-      adblock = import ./Adblock/adblock.nix { inherit pkgs adblock-rust engine; };
+      adblock = import ./Adblock/adblock.nix { inherit pkgs adblock-rust engine uassets ublock; };
+
+      keepass = import ./Keepass/keepass.nix { inherit pkgs; };
 
     in {
       packages.${system} = rec {
-        inherit adblock;
+        inherit (adblock) lib ext resources;
         inherit (engine) webkit shim;
 
         browser = import ./Browser/browser.nix {
           inherit pkgs engine display-onix generatedBindings
                   lvgl lvglBindings themeOdin fontOdin font-onix edgeSources
-                  adblock easylist;
+                  adblock keepass;
         };
 
         default = browser;

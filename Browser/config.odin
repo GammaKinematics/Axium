@@ -15,7 +15,7 @@ default_top := [?]Edge{
     {
         show    = .always,
         overlay = false,
-        widgets = {"back", "forward", "reload", "spacer", "url", "copy", "spacer", "menu"},
+        widgets = {"back", "forward", "reload", "spacer", "url", "copy", "keepass", "spacer", "menu"},
     },
 }
 
