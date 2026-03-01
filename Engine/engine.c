@@ -919,6 +919,17 @@ void engine_get_title(const char** title)
         *title = webkit_web_view_get_title(wv);
 }
 
+void engine_adblock_set_disabled(bool disabled)
+{
+    WebKitWebView* wv = active_web_view();
+    if (!wv) return;
+
+    WebKitUserMessage* msg = webkit_user_message_new(
+        "adblock-set-disabled",
+        g_variant_new_boolean(disabled));
+    webkit_web_view_send_message_to_page(wv, msg, NULL, NULL, NULL);
+}
+
 void engine_run_javascript(const char* script)
 {
     WebKitWebView* wv = active_web_view();

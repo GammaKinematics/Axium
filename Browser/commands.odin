@@ -19,7 +19,12 @@ execute_command :: proc(cmd: string, pressed: bool = true) {
     case "tab_close":   if pressed do tab_close(active_tab)
     case "tab_next":    if pressed do tab_next()
     case "tab_prev":    if pressed do tab_prev()
+    case "adblock":     if pressed do adblock_trigger()
     case "keepass":     if pressed do keepass_trigger()
+    case "translate":        if pressed do translate_trigger()
+    case "translate_toggle":       if pressed do translate_toggle()
+    case "translate_toggle_theme": if pressed do translate_toggle_theme()
+    case "translate_block":  if pressed do translate_block_trigger()
     case:
         idx := strings.index_byte(cmd, ' ')
         name := cmd[:idx] if idx >= 0 else cmd

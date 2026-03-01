@@ -1,6 +1,6 @@
 { pkgs, engine, display-onix, generatedBindings
 , lvgl, lvglBindings, themeOdin, fontOdin, font-onix, edgeSources
-, adblock, keepass
+, adblock, keepass, translate
 }:
 
 let
@@ -26,7 +26,7 @@ pkgs.stdenv.mkDerivation {
     pkgs.glib
     pkgs.libsoup_3      # required by wpe-webkit-2.0.pc
     pkgs.libxkbcommon   # WPEKeymapXKB.h
-  ] ++ displayDeps ++ lvgl.passthru.deps ++ (font-onix.lib.deps pkgs) ++ keepass.buildInputs;
+  ] ++ displayDeps ++ lvgl.passthru.deps ++ (font-onix.lib.deps pkgs) ++ keepass.buildInputs ++ translate.buildInputs;
 
   buildPhase = ''
     # Copy Display-Onix backend source
@@ -50,6 +50,16 @@ pkgs.stdenv.mkDerivation {
       cp "$f" ./
     done
 
+    # Copy adblock sources
+    for f in ${builtins.concatStringsSep " " adblock.sources}; do
+      cp "$f" ./
+    done
+
+    # Copy translate sources
+    for f in ${builtins.concatStringsSep " " translate.sources}; do
+      cp "$f" ./
+    done
+
     # Copy engine Odin bindings
     cp ${engine.odinBindings} ./engine.odin
 
@@ -62,6 +72,7 @@ pkgs.stdenv.mkDerivation {
         $(pkg-config --libs wpe-webkit-2.0 wpe-platform-2.0 glib-2.0 gobject-2.0) \
         ${font-onix.lib.linkFlags pkgs} \
         ${keepass.linkFlags} \
+        ${translate.linkFlags} \
         -lm -lstdc++"
   '';
 

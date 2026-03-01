@@ -15,7 +15,7 @@ default_top := [?]Edge{
     {
         show    = .always,
         overlay = false,
-        widgets = {"back", "forward", "reload", "spacer", "url", "copy", "keepass", "spacer", "menu"},
+        widgets = {"back", "forward", "reload", "spacer", "url", "copy", "keepass", "adblock", "translate", "spacer", "menu"},
     },
 }
 
@@ -42,4 +42,6 @@ config_load :: proc() {
     parse_theme(root["theme"].(json.Object) or_else nil)
     parse_font(root["font"].(json.Object) or_else nil)
     edge_parse_config(root["edges"].(json.Object) or_else nil)
+    translate_parse_config(root["translate"].(json.Object) or_else nil)
+    adblock_parse_config(root["adblock"].(json.Object) or_else nil)
 }

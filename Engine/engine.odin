@@ -52,6 +52,7 @@ foreign engine {
         scale: c.double,
     ) ---
     engine_init_adblock      :: proc(ext_dir: cstring, adblock_dir: cstring) ---
+    engine_adblock_set_disabled :: proc(disabled: bool) ---
     engine_run_javascript    :: proc(script: cstring) ---
     engine_evaluate_javascript :: proc(
         script: cstring,
@@ -68,6 +69,10 @@ engine_init_navigation :: proc() {
             lv_textarea_set_text(url_input, uri if uri != nil else "")
         }
         tab_bar_rebuild()
+        if uri != nil {
+            adblock_on_navigation(string(uri))
+            translate_on_navigation(string(uri))
+        }
     }
 
     on_title :: proc "c" (title: cstring) {

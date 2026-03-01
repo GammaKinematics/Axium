@@ -62,6 +62,7 @@ extern AdblockEngine*    adblock_engine_deserialize(const unsigned char* data,
 // ---------------------------------------------------------------------------
 
 static AdblockEngine* g_engine = NULL;
+static gboolean g_disabled = FALSE;
 
 // ---------------------------------------------------------------------------
 // Request type detection from URL extension
@@ -130,6 +131,9 @@ on_send_request(WebKitWebPage    *page,
     (void)data;
 
     if (!g_engine)
+        return FALSE;
+
+    if (g_disabled)
         return FALSE;
 
     const char* url = webkit_uri_request_get_uri(request);
@@ -414,6 +418,7 @@ on_document_loaded(WebKitWebPage *page, gpointer data)
     (void)data;
 
     if (!g_engine) return;
+    if (g_disabled) return;
 
     const char* page_url = webkit_web_page_get_uri(page);
     if (!page_url) return;
@@ -511,6 +516,29 @@ on_document_loaded(WebKitWebPage *page, gpointer data)
 }
 
 // ---------------------------------------------------------------------------
+// user-message-received handler — honor adblock disable flag from UI process
+// ---------------------------------------------------------------------------
+
+static gboolean
+on_user_message_received(WebKitWebPage    *page,
+                         WebKitUserMessage *message,
+                         gpointer          data)
+{
+    (void)page;
+    (void)data;
+
+    const char* name = webkit_user_message_get_name(message);
+    if (g_strcmp0(name, "adblock-set-disabled") != 0)
+        return FALSE;
+
+    GVariant* params = webkit_user_message_get_parameters(message);
+    if (params && g_variant_is_of_type(params, G_VARIANT_TYPE_BOOLEAN))
+        g_disabled = g_variant_get_boolean(params);
+
+    return TRUE;
+}
+
+// ---------------------------------------------------------------------------
 // page-created handler — connect signals on each new page
 // ---------------------------------------------------------------------------
 
@@ -526,6 +554,8 @@ on_page_created(WebKitWebProcessExtension *ext,
                      G_CALLBACK(on_send_request), NULL);
     g_signal_connect(page, "document-loaded",
                      G_CALLBACK(on_document_loaded), NULL);
+    g_signal_connect(page, "user-message-received",
+                     G_CALLBACK(on_user_message_received), NULL);
 }
 
 // ---------------------------------------------------------------------------

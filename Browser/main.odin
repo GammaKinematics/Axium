@@ -91,6 +91,7 @@ main :: proc() {
 
     // Build edge containers on lv_layer_top()
     keepass_init()
+    translate_init()
     widgets_init()
     bounds := edge_init()
     content_area = bounds
@@ -173,19 +174,32 @@ main :: proc() {
 
         display_present()
 
-        // Sleep until X events or keepass socket data arrives
+        // Sleep until X events, keepass socket, or translate pipe data arrives
         kfd := keepass_fd()
+        tfd := translate_get_fd()
+        nfds: u32 = 1
+        pfds: [3]posix.pollfd
+        pfds[0] = {fd = posix.FD(display_fd()), events = {.IN}}
+        kfd_idx: int = -1
+        tfd_idx: int = -1
         if kfd >= 0 {
-            pfds: [2]posix.pollfd
-            pfds[0] = {fd = posix.FD(display_fd()), events = {.IN}}
-            pfds[1] = {fd = posix.FD(kfd), events = {.IN}}
-            posix.poll(&pfds[0], 2, -1)
-            if .IN in pfds[1].revents {
-                keepass_on_response_ready()
-            }
-        } else {
-            pfd := posix.pollfd{fd = posix.FD(display_fd()), events = {.IN}}
-            posix.poll(&pfd, 1, -1)
+            kfd_idx = int(nfds)
+            pfds[nfds] = {fd = posix.FD(kfd), events = {.IN}}
+            nfds += 1
         }
+        if tfd >= 0 {
+            tfd_idx = int(nfds)
+            pfds[nfds] = {fd = posix.FD(tfd), events = {.IN}}
+            nfds += 1
+        }
+        poll_timeout: i32 = 200 if translate_poll_active else -1
+        posix.poll(&pfds[0], nfds, poll_timeout)
+        if kfd_idx >= 0 && .IN in pfds[kfd_idx].revents {
+            keepass_on_response_ready()
+        }
+        if tfd_idx >= 0 && .IN in pfds[tfd_idx].revents {
+            translate_on_result_ready()
+        }
+        if translate_poll_active do translate_poll_visible()
     }
 }

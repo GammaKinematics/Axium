@@ -35,9 +35,19 @@
       url = "git+https://github.com/gorhill/uBlock?shallow=1";
       flake = false;
     };
+
+    translations = {
+      url = "git+file:///data/Browser/translations?submodules=1";
+      flake = false;
+    };
+
+    translation-models = {
+      url = "file+https://firefox.settings.services.mozilla.com/v1/buckets/main/collections/translations-models/records";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs, webkit, display-onix, bindings-onix, lvgl-onix, theme-onix, font-onix, edge-onix, adblock-rust, uassets, ublock }:
+  outputs = { self, nixpkgs, webkit, display-onix, bindings-onix, lvgl-onix, theme-onix, font-onix, edge-onix, adblock-rust, uassets, ublock, translations, translation-models }:
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
@@ -72,6 +82,8 @@
           "F0C5"  # COPY
           "F0C7"  # SAVE
           "F0C9"  # BARS
+          "F1AB"  # TRANSLATE
+          "F3ED"  # SHIELD-HALVED
         ];
         iconSizes = [ 14 ];
       };
@@ -94,15 +106,18 @@
 
       keepass = import ./Keepass/keepass.nix { inherit pkgs; };
 
+      translate = import ./Translate/translate.nix { inherit pkgs translations translation-models; };
+
     in {
       packages.${system} = rec {
         inherit (adblock) lib ext resources;
         inherit (engine) webkit shim;
+        translate-lib = translate.lib;
 
         browser = import ./Browser/browser.nix {
           inherit pkgs engine display-onix generatedBindings
                   lvgl lvglBindings themeOdin fontOdin font-onix edgeSources
-                  adblock keepass;
+                  adblock keepass translate;
         };
 
         default = browser;

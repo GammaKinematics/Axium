@@ -6,7 +6,8 @@ import "base:runtime"
 ICON_BAN     :: "\xef\x81\x9e"  // U+F05E
 ICON_SHUFFLE :: "\xef\x81\xb4"  // U+F074
 ICON_KEY     :: "\xef\x82\x84"  // U+F084
-ICON_SAVE    :: "\xef\x83\x87"  // U+F0C7
+ICON_SAVE      :: "\xef\x83\x87"  // U+F0C7
+ICON_TRANSLATE :: "\xef\x86\xab"  // U+F1AB
 
 url_input: ^lv_obj_t
 
@@ -135,6 +136,22 @@ on_keepass_click :: proc "c" (e: ^lv_event_t) {
     keepass_trigger()
 }
 
+widget_translate :: proc(parent: ^lv_obj_t) {
+    btn := lv_button_create(parent)
+    lv_obj_add_event_cb(btn, on_translate_click, .LV_EVENT_CLICKED, nil)
+    lbl := lv_label_create(btn)
+    lv_label_set_text(lbl, ICON_TRANSLATE)
+    if icon_font != nil { lv_obj_set_style_text_font(lbl, icon_font, 0) }
+    lv_obj_center(lbl)
+    translate_popup_anchor = btn
+    translate_icon_label = lbl
+}
+
+on_translate_click :: proc "c" (e: ^lv_event_t) {
+    context = runtime.default_context()
+    translate_trigger()
+}
+
 // --- Registration ---
 
 widgets_init :: proc() {
@@ -144,6 +161,8 @@ widgets_init :: proc() {
     edge_register_widget("url", widget_url)
     edge_register_widget("copy", widget_copy_url)
     edge_register_widget("keepass", widget_keepass)
+    edge_register_widget("adblock", widget_adblock)
+    edge_register_widget("translate", widget_translate)
     edge_register_widget("menu", widget_menu)
     edge_register_widget("tabs", widget_tabs)
 }

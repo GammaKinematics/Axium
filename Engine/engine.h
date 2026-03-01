@@ -83,6 +83,9 @@ void engine_set_screen_info(int width, int height,
 // Configure adblock web process extension (must be called BEFORE engine_create_view)
 void engine_init_adblock(const char* ext_dir, const char* adblock_dir);
 
+// Set adblock disabled state for the current page's web process
+void engine_adblock_set_disabled(bool disabled);
+
 // Fire-and-forget JS execution on active view
 void engine_run_javascript(const char* script);
 

@@ -20,8 +20,8 @@
         ]
       },
       "locked": {
-        "lastModified": 1771591574,
-        "narHash": "sha256-i6H2MCkiNPqDtGNqwZbvH1mllcihMmA0F1d22Or0+7I=",
+        "lastModified": 1772325370,
+        "narHash": "sha256-YBf6y1KcIOCGfLfX5URe7AC5WEoajqVhDufNcyTXEp0=",
         "path": "/data/Browser/Bindings-Onix",
         "type": "path"
       },
@@ -32,8 +32,8 @@
     },
     "display-onix": {
       "locked": {
-        "lastModified": 1772055309,
-        "narHash": "sha256-O2GJkay6HjDSqMe9MweACLp6GACNf7yAbr1XVXqk0S8=",
+        "lastModified": 1772324929,
+        "narHash": "sha256-xL7H0tVGkGa6fAj6Zac2gp+Vll/VLkYeFBE5Bw/TteE=",
         "path": "/data/Browser/Display-Onix",
         "type": "path"
       },
@@ -127,6 +127,8 @@
         "lvgl-onix": "lvgl-onix",
         "nixpkgs": "nixpkgs",
         "theme-onix": "theme-onix",
+        "translation-models": "translation-models",
+        "translations": "translations",
         "uassets": "uassets",
         "ublock": "ublock",
         "webkit": "webkit"
@@ -142,6 +144,36 @@
       "original": {
         "path": "/data/Browser/Theme-Onix",
         "type": "path"
+      }
+    },
+    "translation-models": {
+      "flake": false,
+      "locked": {
+        "narHash": "sha256-6dVa+G2pJ6Ujm4LfDTfD3co5iG8Xnpm6Ff1iWp5wQAQ=",
+        "type": "file",
+        "url": "https://firefox.settings.services.mozilla.com/v1/buckets/main/collections/translations-models/records"
+      },
+      "original": {
+        "type": "file",
+        "url": "https://firefox.settings.services.mozilla.com/v1/buckets/main/collections/translations-models/records"
+      }
+    },
+    "translations": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1771525531,
+        "narHash": "sha256-dEVeRZyeFKXerUFqXbyAgHwn1mhlyDiyRbH7vvVn46k=",
+        "ref": "refs/heads/main",
+        "rev": "29389c687d1668e898b4b7dc3ca5a793aac75660",
+        "revCount": 508,
+        "submodules": true,
+        "type": "git",
+        "url": "file:///data/Browser/translations"
+      },
+      "original": {
+        "submodules": true,
+        "type": "git",
+        "url": "file:///data/Browser/translations"
       }
     },
     "uassets": {

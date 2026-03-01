@@ -51,11 +51,9 @@ poll_events :: proc() {
             if k, ok := to_keyboard(u32(e.code)).?; ok {
                 if e.action == .Press {
                     held += {k}
-                    for bind, cmd in bindings {
-                        if held >= bind {
-                            execute_command(cmd)
-                            return
-                        }
+                    if cmd, ok := match_binding(held).?; ok {
+                        execute_command(cmd)
+                        return
                     }
                 } else {
                     held -= {k}
