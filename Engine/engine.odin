@@ -2,7 +2,6 @@ package axium
 
 import "base:runtime"
 import "core:c"
-import "core:c/libc"
 import "core:strings"
 
 foreign import engine "system:engine"
@@ -10,14 +9,10 @@ foreign import engine "system:engine"
 @(default_calling_convention = "c")
 foreign engine {
     engine_init          :: proc() -> bool ---
-    engine_create_view   :: proc(width, height: c.int) -> c.int ---
-    engine_destroy_view  :: proc(index: c.int) ---
-    engine_set_active_view :: proc(index: c.int) ---
-    engine_view_get_uri  :: proc(index: c.int, uri: ^cstring) ---
-    engine_view_get_title :: proc(index: c.int, title: ^cstring) ---
-    engine_view_count    :: proc() -> c.int ---
-    engine_active_view   :: proc() -> c.int ---
-    engine_load_uri      :: proc(uri: cstring) ---
+    engine_create_view   :: proc(width, height: c.int, ephemeral: bool, related: rawptr) -> rawptr ---
+    engine_destroy_view  :: proc(view: rawptr) ---
+    engine_set_active_view :: proc(view: rawptr) ---
+    engine_view_go_to    :: proc(view: rawptr, uri: cstring) ---
     engine_resize        :: proc(width, height: c.int) ---
     engine_pump          :: proc() ---
     engine_grab_frame    :: proc() ---
@@ -35,22 +30,14 @@ foreign engine {
     engine_go_back           :: proc() ---
     engine_go_forward        :: proc() ---
     engine_reload            :: proc() ---
-    engine_get_uri           :: proc(uri: ^cstring) ---
-    engine_get_title         :: proc(title: ^cstring) ---
-    engine_set_clipboard_callbacks :: proc(
-        set_fn: proc "c" (text: cstring) -> bool,
-        get_fn: proc "c" () -> cstring,
-    ) ---
-    engine_set_navigation_callbacks :: proc(
-        uri_fn: proc "c" (uri: cstring),
-        title_fn: proc "c" (title: cstring),
-    ) ---
+    engine_clipboard_notify_external :: proc(formats: [^]cstring, count: c.int) ---
     engine_set_screen_info   :: proc(
         width, height: c.int,
         phys_w_mm, phys_h_mm: c.int,
         refresh_rate_mhz: c.int,
         scale: c.double,
     ) ---
+    engine_set_bg            :: proc(rgb: u32, opacity: c.int) ---
     engine_init_adblock      :: proc(ext_dir: cstring, adblock_dir: cstring) ---
     engine_adblock_set_disabled :: proc(disabled: bool) ---
     engine_run_javascript    :: proc(script: cstring) ---
@@ -58,55 +45,72 @@ foreign engine {
         script: cstring,
         callback: proc "c" (result: cstring),
     ) ---
+    engine_set_download_dir  :: proc(dir: cstring) ---
+    engine_download_cancel   :: proc(uri: cstring) ---
+    engine_history_init      :: proc(db_path: cstring) ---
+    engine_set_page_theme    :: proc(css_vars: cstring) ---
+
+    // Privacy API
+    engine_configure_privacy :: proc(
+        cookie_policy: c.int, itp_enabled: bool,
+        tls_strict: bool, credential_persistence: bool,
+    ) ---
+    engine_clear_website_data :: proc(data_types: c.int, since_timestamp: c.int64_t) ---
+    engine_clear_website_data_for_domain :: proc(domain: cstring, data_types: c.int) ---
+    engine_configure_proxy :: proc(mode: c.int, url: cstring, ignore_hosts: cstring) ---
+    engine_set_tls_allowed_hosts :: proc(hosts: [^]cstring, count: c.int) ---
+
+    // Context menu — actions bitset indexed by WebKit stock action enum
+    engine_context_menu_activate :: proc(action: c.int) ---
+
     engine_shutdown          :: proc() ---
 }
 
-// Navigation callbacks — URI and title changes from WebKit
-engine_init_navigation :: proc() {
-    on_uri :: proc "c" (uri: cstring) {
-        context = runtime.default_context()
-        if url_input != nil {
-            lv_textarea_set_text(url_input, uri if uri != nil else "")
-        }
-        tab_bar_rebuild()
-        if uri != nil {
-            adblock_on_navigation(string(uri))
-            translate_on_navigation(string(uri))
+// WebKit copy → Display-Onix
+@(export)
+on_clipboard_write :: proc "c" (count: c.int, mimes: [^]cstring, data: [^][^]u8, sizes: [^]c.int) -> bool {
+    context = runtime.default_context()
+    if count <= 0 do return false
+    entries := make([]Clipboard_Entry, int(count), context.temp_allocator)
+    for i in 0..<int(count) {
+        entries[i] = Clipboard_Entry{
+            mime = string(mimes[i]),
+            data = data[i][:int(sizes[i])],
         }
     }
-
-    on_title :: proc "c" (title: cstring) {
-        context = runtime.default_context()
-        if title != nil {
-            display_set_title(string(title))
-        }
-        tab_bar_rebuild()
-    }
-
-    engine_set_navigation_callbacks(on_uri, on_title)
+    return display_clipboard_set(entries)
 }
 
-// Clipboard callbacks bridging WPE ↔ Display-Onix
-engine_init_clipboard :: proc() {
-    clipboard_set :: proc "c" (text: cstring) -> bool {
-        context = runtime.default_context()
-        if text == nil do return false
-        return display_clipboard_set(string(text))
+// WebKit paste → Display-Onix
+@(export)
+on_clipboard_read :: proc "c" (mime: cstring, out_data: ^[^]u8, out_size: ^c.int) -> bool {
+    context = runtime.default_context()
+    if mime == nil do return false
+    @static buf: []u8
+    if buf != nil {
+        delete(buf)
+        buf = nil
+    }
+    buf = display_clipboard_get_data(string(mime))
+    if buf == nil || len(buf) == 0 do return false
+    out_data^ = raw_data(buf)
+    out_size^ = c.int(len(buf))
+    return true
+}
+
+// Notify WPE of external clipboard formats before paste
+clipboard_notify_before_paste :: proc() {
+    formats := display_clipboard_get_formats()
+    if formats == nil || len(formats) == 0 do return
+    defer {
+        for f in formats do delete(f)
+        delete(formats)
     }
 
-    clipboard_get :: proc "c" () -> cstring {
-        context = runtime.default_context()
-        @static buf: cstring
-        if buf != nil {
-            libc.free(rawptr(buf))
-            buf = nil
-        }
-        s := display_clipboard_get()
-        if len(s) == 0 do return nil
-        buf = strings.clone_to_cstring(s)
-        delete(s)
-        return buf
+    cformats := make([]cstring, len(formats), context.temp_allocator)
+    for i in 0..<len(formats) {
+        cformats[i] = strings.clone_to_cstring(formats[i], context.temp_allocator)
     }
 
-    engine_set_clipboard_callbacks(clipboard_set, clipboard_get)
+    engine_clipboard_notify_external(raw_data(cformats), c.int(len(cformats)))
 }

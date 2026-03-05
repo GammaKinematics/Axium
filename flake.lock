@@ -32,8 +32,8 @@
     },
     "display-onix": {
       "locked": {
-        "lastModified": 1772324929,
-        "narHash": "sha256-xL7H0tVGkGa6fAj6Zac2gp+Vll/VLkYeFBE5Bw/TteE=",
+        "lastModified": 1772569028,
+        "narHash": "sha256-GaQxTsb1gxPPt6JgaAPSHR3GqOd2hvh8iy0Kbi/k9WM=",
         "path": "/data/Browser/Display-Onix",
         "type": "path"
       },
@@ -44,8 +44,8 @@
     },
     "edge-onix": {
       "locked": {
-        "lastModified": 1772055300,
-        "narHash": "sha256-NTcOl7VVsb40GXTkc2yDPnpsJPmf72eUPKW1XnlaefM=",
+        "lastModified": 1772616667,
+        "narHash": "sha256-lE5LytGORcmgF3yfXNNpjI2/x3ZSpGSdbZN3V5WDM3k=",
         "path": "/data/Browser/Edge-Onix",
         "type": "path"
       },
@@ -56,8 +56,8 @@
     },
     "font-onix": {
       "locked": {
-        "lastModified": 1771265807,
-        "narHash": "sha256-pbelrrZYqKNkJZJ/bCHtWajN4VYdGa2KTWAxU5/Lp1A=",
+        "lastModified": 1772737413,
+        "narHash": "sha256-V1QXkm1TP4o71nAzL7hwawSzdOR3VV/xGmroIYSh7mo=",
         "path": "/data/Browser/Font-Onix",
         "type": "path"
       },
@@ -74,8 +74,8 @@
         ]
       },
       "locked": {
-        "lastModified": 1772208079,
-        "narHash": "sha256-cxhk7Al+bc9HD3qTfPg8IPcOsmPMkLXfa+LxJ+2EZms=",
+        "lastModified": 1772737640,
+        "narHash": "sha256-j4yddIwWCSzgVJ/vdajEmYD4nI+1fDMqdF6BOeGyZL8=",
         "path": "/data/Browser/LVGL-Onix",
         "type": "path"
       },
@@ -136,8 +136,8 @@
     },
     "theme-onix": {
       "locked": {
-        "lastModified": 1772204826,
-        "narHash": "sha256-6gHB4+P9GNlMilol/NFppE6KfkUYytzNWKqR6PplOeA=",
+        "lastModified": 1772327548,
+        "narHash": "sha256-Ghb/LWKDT4X0qbPzSOpb0ig7T8xyKn0RcNhOPgq8WvE=",
         "path": "/data/Browser/Theme-Onix",
         "type": "path"
       },

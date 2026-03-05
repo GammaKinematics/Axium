@@ -1,4 +1,4 @@
-{ pkgs, webkit,
+{ pkgs, webkit, pages,
   # Compiler optimizations
   optimize ? false,        # -O3 (disabled for debug build)
   lto ? false,             # -flto (warning: very slow for WebKit)
@@ -178,18 +178,19 @@ let
       pkgs.glib
       pkgs.libsoup_3
       pkgs.libxkbcommon
+      pkgs.sqlite
     ];
 
     buildPhase = ''
       cc -c engine.c -o engine.o \
-        $(pkg-config --cflags wpe-webkit-2.0 wpe-platform-2.0 glib-2.0 gobject-2.0)
+        -I${pages}/include \
+        $(pkg-config --cflags wpe-webkit-2.0 wpe-platform-2.0 glib-2.0 gobject-2.0 sqlite3)
       ar rcs libengine.a engine.o
     '';
 
     installPhase = ''
-      mkdir -p $out/lib $out/include
+      mkdir -p $out/lib
       cp libengine.a $out/lib/
-      cp engine.h $out/include/
     '';
 
     meta = {
@@ -202,5 +203,5 @@ let
 
 in {
   webkit = webkitEngine;
-  inherit shim odinBindings;
+  inherit shim odinBindings pages;
 }

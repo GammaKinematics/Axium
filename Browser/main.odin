@@ -13,6 +13,7 @@ HEIGHT :: 720
 lv_disp: ^lv_display_t
 keyboard_group: ^lv_group_t
 icon_font: ^lv_font_t
+base_font: ^lv_font_t
 pending_resize: Maybe(Resize)
 last_resize_time: time.Tick
 
@@ -49,17 +50,26 @@ main :: proc() {
         engine_init_adblock(ext_dir, adblock_dir)
     }
 
-    engine_init_clipboard()
-    engine_init_navigation()
     config_load()
-    resolve_font()
+    site_settings_load()
+    privacy_init()
 
+    // Initialize history DB, page theme, and internal pages (before creating views)
+    {
+        db_path := xdg_path(.Data, "history.db")
+        engine_history_init(strings.clone_to_cstring(db_path))
+    }
+    engine_set_page_theme(strings.clone_to_cstring(
+        fmt.tprintf(":root{{--bg:#{:06x};--text:#{:06x};--accent:#{:06x};--text-sec:#{:06x};--pad:12px;--gap:8px;--radius:6px}}",
+            theme_bg_prim, theme_text_pri, theme_accent, theme_text_sec)))
+    favorite_load()
+    download_init()
     // Init LVGL
     lv_init()
     apply_theme()
 
     lv_disp = lv_display_create(i32(WIDTH), i32(HEIGHT))
-    lv_display_set_color_format(lv_disp, .LV_COLOR_FORMAT_ARGB8888)
+    lv_display_set_color_format(lv_disp, .LV_COLOR_FORMAT_ARGB8888_PREMULTIPLIED)
 
     fb, fb_w, fb_h := display_framebuffer()
     lv_display_set_buffers(lv_disp, raw_data(fb), nil, u32(len(fb) * 4), .LV_DISPLAY_RENDER_MODE_DIRECT)
@@ -78,16 +88,26 @@ main :: proc() {
     kb_group := lv_group_create()
     lv_indev_set_group(kb_indev, kb_group)
     keyboard_group = kb_group
-    icon_font = lv_onix_icons_get(font_size_base)
+    // Icon font (user override or embedded subset)
+    if icon_font_path != "" {
+        cpath := strings.clone_to_cstring(strings.concatenate({"A:", icon_font_path}))
+        icon_font = lv_tiny_ttf_create_file(cpath, i32(font_size))
+    } else {
+        icon_font = lv_tiny_ttf_create_data(raw_data(ICON_FONT_DATA), len(ICON_FONT_DATA), i32(font_size))
+    }
 
-    // Font setup (TTF) on active screen
+    // Text font (TTF via fontconfig) on active screen
     if font_path != "" {
         cpath := strings.clone_to_cstring(strings.concatenate({"A:", font_path}))
-        base_font := lv_tiny_ttf_create_file(cpath, font_size_base)
+        base_font = lv_tiny_ttf_create_file(cpath, i32(font_size))
         if base_font != nil {
             lv_obj_set_style_text_font(lv_screen_active(), base_font, 0)
+            lv_obj_set_style_text_font(lv_layer_top(), base_font, 0)
         }
     }
+
+    // Tab sizing (needs fonts/theme ready)
+    tab_init_sizing()
 
     // Build edge containers on lv_layer_top()
     keepass_init()
@@ -96,16 +116,23 @@ main :: proc() {
     bounds := edge_init()
     content_area = bounds
     input_area = edge_content_widget_bounds()
+    lv_refr_set_noclear_area(bounds.x, bounds.y,
+        bounds.x + bounds.w - 1, bounds.y + bounds.h - 1)
+
+    // Set WebKit background color + opacity (before creating views)
+    engine_set_bg(theme_bg_prim, theme_bg_opacity if web_bg_opacity else 255)
 
     // Create first WebKit view sized to content area
-    first_view := engine_create_view(bounds.w, bounds.h)
-    if first_view < 0 {
+    view := engine_create_view(bounds.w, bounds.h, false, nil)
+    if view == nil {
         fmt.eprintln("Failed to create view")
         return
     }
-    engine_set_active_view(0)
-    active_tab = 0
+
+    tab_entries[0] = Tab_Entry{ view = view }
     tab_count = 1
+    active_tab = 0
+    engine_set_active_view(view)
 
     // Point WebKit output directly into content area of framebuffer
     engine_set_frame_target(
@@ -115,8 +142,10 @@ main :: proc() {
         bounds.w, bounds.h,
     )
 
-    engine_load_uri("https://www.google.com")
-    tab_bar_rebuild()
+    if !session_restore() {
+        engine_view_go_to(view, "https://www.google.com")
+    }
+    tab_bar_build_all()
 
     // Main loop
     last_tick := time.now()
@@ -136,6 +165,8 @@ main :: proc() {
             content_area = new_bounds
             input_area = edge_content_widget_bounds()
             update_engine_bounds()
+            lv_refr_set_noclear_area(content_area.x, content_area.y,
+                content_area.x + content_area.w - 1, content_area.y + content_area.h - 1)
         }
 
         // Apply pending resize after debounce
@@ -201,5 +232,15 @@ main :: proc() {
             translate_on_result_ready()
         }
         if translate_poll_active do translate_poll_visible()
+    }
+
+    session_save()
+
+    // Destroy all views before engine_shutdown (deferred above)
+    for i in 0..<tab_count {
+        if tab_entries[i].view != nil {
+            engine_destroy_view(tab_entries[i].view)
+            tab_entries[i].view = nil
+        }
     }
 }

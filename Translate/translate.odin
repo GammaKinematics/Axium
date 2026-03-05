@@ -269,13 +269,7 @@ translate_on_lang_detected :: proc(result: string) {
 
 translate_get_models_base :: proc() -> string {
     if translate_models_base != "" do return translate_models_base
-    xdg := os.get_env("XDG_DATA_HOME")
-    if xdg == "" {
-        home := os.get_env("HOME")
-        translate_models_base = strings.concatenate({home, "/.local/share/axium/translate/models"})
-    } else {
-        translate_models_base = strings.concatenate({xdg, "/axium/translate/models"})
-    }
+    translate_models_base = xdg_path(.Data, "translate/models")
     return translate_models_base
 }
 
@@ -940,7 +934,7 @@ translate_popup_info :: proc(msg: string) {
     panel := lv_obj_create(lv_layer_top())
     lv_obj_set_size(panel, LV_SIZE_CONTENT, LV_SIZE_CONTENT)
     lv_obj_set_style_bg_color(panel, lv_color_hex(theme_bg_prim), 0)
-    lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, 0)
+    lv_obj_set_style_bg_opa(panel, u8(theme_bg_opacity), 0)
     lv_obj_set_style_text_color(panel, lv_color_hex(theme_text_pri), 0)
     lv_obj_set_style_radius(panel, 12, 0)
     lv_obj_set_style_pad_top(panel, theme_padding, 0)
@@ -1031,10 +1025,10 @@ translate_cache_store :: proc(src, tgt, text, result: string) {
 // --- Translated page tracking ---
 
 translate_url_hash :: proc() -> u64 {
-    uri: cstring
-    engine_get_uri(&uri)
-    if uri == nil do return 0
-    return hash.murmur64a(transmute([]byte)string(uri))
+    if active_tab < 0 || active_tab >= tab_count do return 0
+    url := tab_entries[active_tab].uri
+    if len(url) == 0 do return 0
+    return hash.murmur64a(transmute([]byte)url)
 }
 
 translate_page_is_translated :: proc(url_hash: u64) -> bool {

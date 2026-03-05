@@ -52,8 +52,10 @@
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
 
+      pages = import ./Pages/pages.nix { inherit pkgs; };
+
       engine = import ./Engine/engine.nix {
-        inherit pkgs webkit;
+        inherit pkgs webkit pages;
         optimize = false;
         march = null;
         fastMath = false;
@@ -69,23 +71,7 @@
       lvgl = lvgl-onix.lib.mkLvgl {
         hostPkgs = pkgs;
         inherit pkgs;
-        widgets = ["button" "label" "textarea"];
-        iconCodes = [
-          "F00D"  # CLOSE
-          "F021"  # REFRESH
-          "F053"  # LEFT
-          "F054"  # RIGHT
-          "F05E"  # BAN
-          "F067"  # PLUS
-          "F074"  # RANDOM/SHUFFLE
-          "F084"  # KEY
-          "F0C5"  # COPY
-          "F0C7"  # SAVE
-          "F0C9"  # BARS
-          "F1AB"  # TRANSLATE
-          "F3ED"  # SHIELD-HALVED
-        ];
-        iconSizes = [ 14 ];
+        widgets = ["button" "label" "textarea" "arc"];
       };
 
       lvglBindings = lvgl-onix.lib.bindings { package = "axium"; };
@@ -95,9 +81,43 @@
         theme = lvgl.passthru.theme;
       };
 
-      fontOdin = font-onix.lib.generate {
-        package = "axium";
-        font = { name = "sans-serif"; path = ""; sizes = { base = 14; }; };
+      fontSources = font-onix.lib.sources { package = "axium"; };
+
+      iconFont = font-onix.lib.mkIconFont {
+        inherit pkgs;
+        font = "${pkgs.font-awesome}/share/fonts/opentype/Font Awesome 7 Free-Solid-900.otf";
+        codepoints = [
+          "F005"  # STAR
+          "F00D"  # CLOSE
+          "F013"  # COG (settings)
+          "F017"  # CLOCK
+          "F019"  # DOWNLOAD
+          "F021"  # REFRESH
+          "F032"  # BOLD
+          "F033"  # ITALIC
+          "F04B"  # PLAY
+          "F04C"  # PAUSE
+          "F04D"  # STOP
+          "F053"  # LEFT
+          "F054"  # RIGHT
+          "F05E"  # BAN
+          "F065"  # EXPAND (fullscreen)
+          "F067"  # PLUS
+          "F074"  # SHUFFLE
+          "F084"  # KEY
+          "F0C1"  # LINK
+          "F0C4"  # CUT
+          "F0C5"  # COPY
+          "F0C7"  # SAVE
+          "F0C9"  # BARS
+          "F0CD"  # UNDERLINE
+          "F0EA"  # PASTE
+          "F1AB"  # TRANSLATE
+          "F35D"  # EXTERNAL-LINK-ALT
+          "F3ED"  # SHIELD-HALVED
+          "F6A9"  # VOLUME-MUTE
+          "F6FA"  # MASK (incognito)
+        ];
       };
 
       edgeSources = edge-onix.lib.sources;
@@ -111,12 +131,12 @@
     in {
       packages.${system} = rec {
         inherit (adblock) lib ext resources;
-        inherit (engine) webkit shim;
+        inherit (engine) webkit shim pages;
         translate-lib = translate.lib;
 
         browser = import ./Browser/browser.nix {
-          inherit pkgs engine display-onix generatedBindings
-                  lvgl lvglBindings themeOdin fontOdin font-onix edgeSources
+          inherit pkgs engine pages display-onix generatedBindings
+                  lvgl lvglBindings themeOdin fontSources iconFont edgeSources
                   adblock keepass translate;
         };
 

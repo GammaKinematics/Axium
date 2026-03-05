@@ -108,12 +108,13 @@ poll_events :: proc() {
 
             // Popup intercept: clicks go to popup or dismiss it
             if e.button >= 1 && e.button <= 3 && popup_is_active() {
-                if popup_hit_test(px, py) {
+                hit := popup_hit_test(px, py)
+                if hit {
                     content_has_focus = false
                     input_mouse_x = px
                     input_mouse_y = py
                     input_mouse_pressed = e.pressed
-                } else {
+                } else if e.pressed {
                     popup_dismiss()
                 }
                 continue
@@ -155,7 +156,11 @@ poll_events :: proc() {
             mouse_screen_y = i32(e.y)
 
             px, py := i32(e.x), i32(e.y)
-            if content_has_focus && in_content_area(px, py) {
+            if popup_is_active() {
+                // When popup is active, LVGL needs pointer tracking for button hit detection
+                input_mouse_x = px
+                input_mouse_y = py
+            } else if content_has_focus && in_content_area(px, py) {
                 engine_send_mouse_move(
                     f64(px - content_area.x), f64(py - content_area.y),
                 )
@@ -196,6 +201,8 @@ handle_resize :: proc(lv_disp: ^lv_display_t) {
     lv_obj_update_layout(lv_layer_top())
     content_area = edge_query_bounds()
     input_area = edge_content_widget_bounds()
+    lv_refr_set_noclear_area(content_area.x, content_area.y,
+        content_area.x + content_area.w - 1, content_area.y + content_area.h - 1)
 
     // Update WebKit view size and frame target
     engine_resize(content_area.w, content_area.h)

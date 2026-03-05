@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html><head>
+  <meta charset="utf-8">
+  <title>Browsing Data</title>
+  <link rel="stylesheet" href="data.css">
+</head><body>
+  <h1>Browsing Data</h1>
+  <div class="grid">
+    <div class="transfer-col">
+      <h3>Sites</h3>
+      <div class="transfer-row">
+        <div style="flex:1;display:flex;flex-direction:column">
+          <div class="list-label">Available</div>
+          <div class="list-box" id="availList"></div>
+        </div>
+        <div class="chevrons">
+          <button onclick="moveAll(true)" title="Select all">&raquo;</button>
+          <button onclick="moveSelected(true)" title="Select">&rsaquo;</button>
+          <button onclick="moveSelected(false)" title="Deselect">&lsaquo;</button>
+          <button onclick="moveAll(false)" title="Deselect all">&laquo;</button>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column">
+          <div class="list-label">Selected</div>
+          <div class="list-box" id="selList"></div>
+        </div>
+      </div>
+      <input class="search-box" type="text" id="search" placeholder="Filter available sites…">
+    </div>
+    <div class="types-col">
+      <h3>Data Types</h3>
+      <div class="check-row"><input type="checkbox" id="dt_cookies" checked><label for="dt_cookies">Cookies</label></div>
+      <div class="check-row"><input type="checkbox" id="dt_cache" checked><label for="dt_cache">Disk Cache</label></div>
+      <div class="check-row"><input type="checkbox" id="dt_localstorage" checked><label for="dt_localstorage">Local Storage</label></div>
+      <div class="check-row"><input type="checkbox" id="dt_indexeddb" checked><label for="dt_indexeddb">IndexedDB</label></div>
+      <div class="check-row"><input type="checkbox" id="dt_sw" checked><label for="dt_sw">Service Workers</label></div>
+      <div class="check-row"><input type="checkbox" id="dt_hsts" checked><label for="dt_hsts">HSTS Cache</label></div>
+      <div class="check-row"><input type="checkbox" id="dt_session" checked><label for="dt_session">Session Storage</label></div>
+      <div class="check-row"><input type="checkbox" id="dt_domcache" checked><label for="dt_domcache">DOM Cache</label></div>
+    </div>
+  </div>
+  <div class="action-bar">
+    <select class="timerange" id="timerange">
+      <option value="0" selected>All Time</option>
+      <option value="3600">Last Hour</option>
+      <option value="86400">Last 24 Hours</option>
+      <option value="604800">Last 7 Days</option>
+      <option value="2592000">Last 30 Days</option>
+    </select>
+    <button class="clear" id="clearBtn" onclick="clearData()">Clear Selected Data</button>
+  </div>
+  <div class="status" id="status"></div>
+  <script src="data.js"></script>
+</body></html>

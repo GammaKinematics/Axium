@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html><head>
+  <meta charset="utf-8">
+  <title>Settings</title>
+  <link rel="stylesheet" href="settings.css">
+</head><body>
+  <h1>Settings</h1>
+  <div class="tab-bar">
+    <button class="tab active" onclick="switchTab('defaults')">Defaults</button>
+    <button class="tab" onclick="switchTab('sites')">Per-Site</button>
+  </div>
+
+  <div id="defaults-panel">
+    <h2>Content</h2>
+    <div class="row" data-key="javascript">
+      <label>JavaScript</label>
+      <button class="toggle" onclick="toggleDefault(this,'javascript')"></button>
+    </div>
+    <div class="row" data-key="popups">
+      <label>Popups</label>
+      <button class="toggle" onclick="toggleDefault(this,'popups')"></button>
+    </div>
+    <div class="row" data-key="adblock">
+      <label>Adblock</label>
+      <button class="toggle" onclick="toggleDefault(this,'adblock')"></button>
+    </div>
+    <div class="row" data-key="autoplay">
+      <label>Autoplay</label>
+      <select onchange="setDefault('autoplay',parseInt(this.value))">
+        <option value="0">Deny</option>
+        <option value="1">Muted</option>
+        <option value="2">Allow</option>
+      </select>
+    </div>
+    <div class="row" data-key="user_agent">
+      <label>User Agent</label>
+      <input type="text" id="def-ua" placeholder="Default"
+        onchange="setDefault('user_agent',this.value)">
+    </div>
+
+    <h2>Web APIs</h2>
+    <div class="row" data-key="webrtc">
+      <label>WebRTC</label>
+      <button class="toggle" onclick="toggleDefault(this,'webrtc')"></button>
+    </div>
+    <div class="row" data-key="webgl">
+      <label>WebGL</label>
+      <button class="toggle" onclick="toggleDefault(this,'webgl')"></button>
+    </div>
+    <div class="row" data-key="media_stream">
+      <label>Media Stream</label>
+      <button class="toggle" onclick="toggleDefault(this,'media_stream')"></button>
+    </div>
+
+    <h2>Permissions</h2>
+    <div class="row" data-key="geolocation">
+      <label>Geolocation</label>
+      <button class="toggle" onclick="toggleDefault(this,'geolocation')"></button>
+    </div>
+    <div class="row" data-key="notifications">
+      <label>Notifications</label>
+      <button class="toggle" onclick="toggleDefault(this,'notifications')"></button>
+    </div>
+    <div class="row" data-key="camera">
+      <label>Camera</label>
+      <button class="toggle" onclick="toggleDefault(this,'camera')"></button>
+    </div>
+    <div class="row" data-key="microphone">
+      <label>Microphone</label>
+      <button class="toggle" onclick="toggleDefault(this,'microphone')"></button>
+    </div>
+    <div class="row" data-key="clipboard">
+      <label>Clipboard</label>
+      <button class="toggle" onclick="toggleDefault(this,'clipboard')"></button>
+    </div>
+    <div class="row" data-key="device_info">
+      <label>Device Info</label>
+      <button class="toggle" onclick="toggleDefault(this,'device_info')"></button>
+    </div>
+    <div class="row" data-key="media_keys">
+      <label>Media Keys</label>
+      <button class="toggle" onclick="toggleDefault(this,'media_keys')"></button>
+    </div>
+    <div class="row" data-key="data_access">
+      <label>Data Access</label>
+      <button class="toggle" onclick="toggleDefault(this,'data_access')"></button>
+    </div>
+
+    <h2>Privacy</h2>
+    <div class="row" data-key="tls_enforce">
+      <label>TLS Strict Mode</label>
+      <button class="toggle" onclick="toggleDefault(this,'tls_enforce')"></button>
+    </div>
+    <div class="row" data-key="cookie_policy">
+      <label>Cookie Policy</label>
+      <select onchange="setDefault('cookie_policy',parseInt(this.value))">
+        <option value="0">Always Accept</option>
+        <option value="1">No Third Party</option>
+        <option value="2">Never Accept</option>
+      </select>
+    </div>
+    <div class="row" data-key="itp">
+      <label>Intelligent Tracking Prevention</label>
+      <button class="toggle" onclick="toggleDefault(this,'itp')"></button>
+    </div>
+    <div class="row" data-key="credential_persistence">
+      <label>Credential Persistence</label>
+      <button class="toggle" onclick="toggleDefault(this,'credential_persistence')"></button>
+    </div>
+
+    <h2>Proxy</h2>
+    <div class="row" data-key="proxy_mode">
+      <label>Proxy Mode</label>
+      <select onchange="setDefault('proxy_mode',parseInt(this.value))">
+        <option value="0">System Default</option>
+        <option value="1">No Proxy</option>
+        <option value="2">Custom</option>
+      </select>
+    </div>
+    <div class="row" data-key="proxy_url">
+      <label>Proxy URL</label>
+      <input type="text" id="def-proxy-url" placeholder="http://..."
+        onchange="setDefault('proxy_url',this.value)">
+    </div>
+    <div class="row" data-key="proxy_ignore">
+      <label>Ignore Hosts</label>
+      <input type="text" id="def-proxy-ignore" placeholder="localhost,127.0.0.1"
+        onchange="setDefault('proxy_ignore',this.value)">
+    </div>
+
+    <h2>Data</h2>
+    <div class="row">
+      <a href="axium://data">Manage Browsing Data</a>
+    </div>
+  </div>
+
+  <div id="sites-panel" style="display:none">
+    <div class="domain-bar">
+      <select id="domain-select" onchange="loadSite()">
+        <option value="">Select domain...</option>
+      </select>
+      <input type="text" id="new-domain" placeholder="Add domain...">
+      <button onclick="addDomain()">+</button>
+    </div>
+    <div id="site-settings" style="display:none">
+      <h2>Content</h2>
+      <div class="row" data-key="javascript">
+        <label>JavaScript</label>
+        <button class="toggle" onclick="toggleSite(this,'javascript')"></button>
+      </div>
+      <div class="row" data-key="popups">
+        <label>Popups</label>
+        <button class="toggle" onclick="toggleSite(this,'popups')"></button>
+      </div>
+      <div class="row" data-key="adblock">
+        <label>Adblock</label>
+        <button class="toggle" onclick="toggleSite(this,'adblock')"></button>
+      </div>
+      <div class="row" data-key="autoplay">
+        <label>Autoplay</label>
+        <select onchange="setSiteField('autoplay',parseInt(this.value))">
+          <option value="0">Deny</option>
+          <option value="1">Muted</option>
+          <option value="2">Allow</option>
+        </select>
+      </div>
+      <div class="row" data-key="user_agent">
+        <label>User Agent</label>
+        <input type="text" id="site-ua" placeholder="Default"
+          onchange="setSiteField('user_agent',this.value)">
+      </div>
+
+      <h2>Web APIs</h2>
+      <div class="row" data-key="webrtc">
+        <label>WebRTC</label>
+        <button class="toggle" onclick="toggleSite(this,'webrtc')"></button>
+      </div>
+      <div class="row" data-key="webgl">
+        <label>WebGL</label>
+        <button class="toggle" onclick="toggleSite(this,'webgl')"></button>
+      </div>
+      <div class="row" data-key="media_stream">
+        <label>Media Stream</label>
+        <button class="toggle" onclick="toggleSite(this,'media_stream')"></button>
+      </div>
+
+      <h2>Permissions</h2>
+      <div class="row" data-key="geolocation">
+        <label>Geolocation</label>
+        <button class="toggle" onclick="toggleSite(this,'geolocation')"></button>
+      </div>
+      <div class="row" data-key="notifications">
+        <label>Notifications</label>
+        <button class="toggle" onclick="toggleSite(this,'notifications')"></button>
+      </div>
+      <div class="row" data-key="camera">
+        <label>Camera</label>
+        <button class="toggle" onclick="toggleSite(this,'camera')"></button>
+      </div>
+      <div class="row" data-key="microphone">
+        <label>Microphone</label>
+        <button class="toggle" onclick="toggleSite(this,'microphone')"></button>
+      </div>
+      <div class="row" data-key="clipboard">
+        <label>Clipboard</label>
+        <button class="toggle" onclick="toggleSite(this,'clipboard')"></button>
+      </div>
+      <div class="row" data-key="device_info">
+        <label>Device Info</label>
+        <button class="toggle" onclick="toggleSite(this,'device_info')"></button>
+      </div>
+      <div class="row" data-key="media_keys">
+        <label>Media Keys</label>
+        <button class="toggle" onclick="toggleSite(this,'media_keys')"></button>
+      </div>
+      <div class="row" data-key="data_access">
+        <label>Data Access</label>
+        <button class="toggle" onclick="toggleSite(this,'data_access')"></button>
+      </div>
+
+      <h2>Security</h2>
+      <div class="row" data-key="tls_enforce">
+        <label>TLS Strict Mode</label>
+        <button class="toggle" onclick="toggleSite(this,'tls_enforce')"></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="status" id="status"></div>
+  <script src="settings.js"></script>
+</body></html>

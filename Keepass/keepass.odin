@@ -626,7 +626,7 @@ keepass_popup_info :: proc(msg: string) {
     panel := lv_obj_create(lv_layer_top())
     lv_obj_set_size(panel, LV_SIZE_CONTENT, LV_SIZE_CONTENT)
     lv_obj_set_style_bg_color(panel, lv_color_hex(theme_bg_prim), 0)
-    lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, 0)
+    lv_obj_set_style_bg_opa(panel, u8(theme_bg_opacity), 0)
     lv_obj_set_style_text_color(panel, lv_color_hex(theme_text_pri), 0)
     lv_obj_set_style_radius(panel, 12, 0)
     lv_obj_set_style_pad_top(panel, theme_padding, 0)
@@ -650,7 +650,7 @@ keepass_popup_main :: proc() {
     panel := lv_obj_create(lv_layer_top())
     lv_obj_set_size(panel, LV_SIZE_CONTENT, LV_SIZE_CONTENT)
     lv_obj_set_style_bg_color(panel, lv_color_hex(theme_bg_prim), 0)
-    lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, 0)
+    lv_obj_set_style_bg_opa(panel, u8(theme_bg_opacity), 0)
     lv_obj_set_style_text_color(panel, lv_color_hex(theme_text_pri), 0)
     lv_obj_set_style_radius(panel, 12, 0)
     lv_obj_set_style_pad_top(panel, theme_padding, 0)
@@ -673,7 +673,7 @@ keepass_popup_main :: proc() {
         }
     } else {
         lbl := lv_label_create(panel)
-        lv_label_set_text(lbl, ICON_BAN)
+        lv_label_set_text(lbl, icons[.ban])
         if icon_font != nil { lv_obj_set_style_text_font(lbl, icon_font, 0) }
     }
 
@@ -681,13 +681,13 @@ keepass_popup_main :: proc() {
     save_btn := lv_button_create(panel)
     lv_obj_add_event_cb(save_btn, on_save_click, .LV_EVENT_CLICKED, nil)
     save_lbl := lv_label_create(save_btn)
-    lv_label_set_text(save_lbl, ICON_SAVE)
+    lv_label_set_text(save_lbl, icons[.save])
     if icon_font != nil { lv_obj_set_style_text_font(save_lbl, icon_font, 0) }
 
     gen_btn := lv_button_create(panel)
     lv_obj_add_event_cb(gen_btn, on_generate_click, .LV_EVENT_CLICKED, nil)
     gen_lbl := lv_label_create(gen_btn)
-    lv_label_set_text(gen_lbl, ICON_SHUFFLE)
+    lv_label_set_text(gen_lbl, icons[.shuffle])
     if icon_font != nil { lv_obj_set_style_text_font(gen_lbl, icon_font, 0) }
 
     if keepass_popup_anchor != nil {
@@ -702,7 +702,7 @@ keepass_popup_save_confirm :: proc() {
     panel := lv_obj_create(lv_layer_top())
     lv_obj_set_size(panel, LV_SIZE_CONTENT, LV_SIZE_CONTENT)
     lv_obj_set_style_bg_color(panel, lv_color_hex(theme_bg_prim), 0)
-    lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, 0)
+    lv_obj_set_style_bg_opa(panel, u8(theme_bg_opacity), 0)
     lv_obj_set_style_text_color(panel, lv_color_hex(theme_text_pri), 0)
     lv_obj_set_style_radius(panel, 12, 0)
     lv_obj_set_style_pad_top(panel, theme_padding, 0)
@@ -779,14 +779,8 @@ on_group_click :: proc "c" (e: ^lv_event_t) {
 
 // --- Association persistence ---
 
-KEEPASS_CONFIG_PATH :: "~/.config/axium/keepass.json"
-
 keepass_load_association :: proc() {
-    path := KEEPASS_CONFIG_PATH
-    if len(path) > 0 && path[0] == '~' {
-        home := os.get_env("HOME")
-        path = strings.concatenate({home, path[1:]})
-    }
+    path := xdg_path(.Data, "keepass.json")
 
     file, ok := os.read_entire_file(path)
     if !ok do return
@@ -821,13 +815,7 @@ keepass_load_association :: proc() {
 }
 
 keepass_save_association :: proc() {
-    path := KEEPASS_CONFIG_PATH
-    if len(path) > 0 && path[0] == '~' {
-        home := os.get_env("HOME")
-        path = strings.concatenate({home, path[1:]})
-    }
-
-    // Ensure directory exists
+    path := xdg_path(.Data, "keepass.json")
     dir := path[:strings.last_index_byte(path, '/')]
     os.make_directory(dir)
 
@@ -847,10 +835,8 @@ keepass_save_association :: proc() {
 // --- Helpers ---
 
 keepass_current_url :: proc() -> string {
-    uri: cstring
-    engine_get_uri(&uri)
-    if uri == nil do return ""
-    return string(uri)
+    if active_tab < 0 || active_tab >= tab_count do return ""
+    return tab_entries[active_tab].uri
 }
 
 keepass_clear_entries :: proc() {

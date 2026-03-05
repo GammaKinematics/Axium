@@ -150,5 +150,5 @@ let
 
 in {
   inherit lib ext resources;
-  sources = [ ./adblock.odin ];
+  sources = [];
 }

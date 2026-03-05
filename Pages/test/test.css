@@ -1,0 +1,24 @@
+body {
+  margin: 0;
+  padding: var(--pad, 12px);
+  background: var(--bg, #1e1e2e);
+  color: var(--text, #cdd6f4);
+  font-family: sans-serif;
+}
+
+h1 {
+  color: var(--accent, #89b4fa);
+  margin: 0 0 var(--gap, 8px) 0;
+}
+
+#status {
+  color: var(--text-sec, #6c7086);
+}
+
+#result {
+  background: rgba(255,255,255,0.05);
+  padding: var(--pad, 12px);
+  border-radius: var(--radius, 6px);
+  white-space: pre-wrap;
+  word-break: break-all;
+}

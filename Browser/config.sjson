@@ -8,6 +8,7 @@
         "Ctrl_L+Z": "undo"
         "Ctrl_L+Shift_L+Z": "redo"
         "Ctrl_L+T": "tab_new"
+        "Ctrl_L+Shift_L+N": "tab_new_private"
         "Ctrl_L+W": "tab_close"
         "Ctrl_L+Tab": "tab_next"
         "Ctrl_L+Shift_L+Tab": "tab_prev"
@@ -26,7 +27,26 @@
         "Ctrl_L+Shift_L+E": "translate_toggle_theme"
         "Ctrl_L+Shift_L+B": "translate_block"
         "Ctrl_L+Shift_L+A": "adblock"
+        "Ctrl_L+D": "favorites"
+        "Ctrl_L+H": "history"
+        "Ctrl_L+J": "downloads"
+        "Ctrl_L+Comma": "settings"
     }
+    restore: true
+    download_dir: "~/Downloads"
+    font: {
+        name: "Sans"
+        // path: "/path/to/font.ttf"
+        size: 14
+    }
+    // icons: {
+    //     font: "Font Awesome"
+    //     path: "/path/to/icons.ttf"
+    //     // Per-icon codepoint overrides (hex):
+    //     // back: "F053"
+    //     // forward: "F054"
+    //     // reload: "F021"
+    // }
     translate: {
         target: "en"
         // display: "dual" | "translation" | "hover"
@@ -39,10 +59,21 @@
         // Optional "url" overrides the default API endpoint
         auto_translate: []
     }
-    adblock: {
-        default: "on"
-        whitelist: []
+    theme: {
+        bg_prim: "#15171a"
+        bg_sec: "#282b30"
+        bg_ter: "#3f4247"
+        accent: "#4a9eff"
+        text_pri: "#dfe1e5"
+        text_sec: "#5c5f63"
+        padding: 8
+        gap: 10
+        radius: 10
+        border_width: 2
+        bg_opacity: 255
+        web_bg_opacity: false
     }
+    context_menu: ["link" "content" "media" "edit" "text" "nav"]
     edges: {
         hover_distance: 5
         top: [
@@ -54,7 +85,7 @@
             {
                 show: "always"
                 overlay: false
-                widgets: ["back" "forward" "reload" "spacer" "url" "copy" "keepass" "adblock" "translate" "spacer" "menu"]
+                widgets: ["back" "forward" "reload" "separator" "favorites" "url" "copy" "separator" "keepass" "translate" "downloads" "settings"]
             }
         ]
     }
