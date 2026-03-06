@@ -92,8 +92,9 @@
             }).overrideAttrs { doCheck = false; };
             # Go segfaults during bootstrap in cross/LTO env — skip it, we don't need captree
             libcap = prev.libcap.override { withGo = false; };
-            # SIGILL: test binaries use -march=x86-64-v3 (AVX2) which server CPU may lack
+            # Test failures under cross/LTO/march — bitcode or AVX2 on non-AVX2 builder
             argp-standalone = prev.argp-standalone.overrideAttrs { doCheck = false; };
+            expat = prev.expat.overrideAttrs { doCheck = false; };
           })
         ];
       };
