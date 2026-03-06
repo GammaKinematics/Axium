@@ -80,13 +80,13 @@ let
       zlib
       libwebp
 
+      libepoxy
+
     ] ++ (if static_lto then [ gstreamer ] else with pkgs; [
       # GStreamer (video/audio playback) — nixpkgs packages for dynamic build
       gst_all_1.gstreamer
       gst_all_1.gst-plugins-base
       gst_all_1.gst-plugins-good
-      # libepoxy — EGL type headers; libglvnd (its dep) refuses static builds
-      libepoxy
     ]) ++ (with pkgs; [
       # Graphics — Mesa, GBM, DRM removed: compositing disabled, no EGL init at runtime.
       freetype

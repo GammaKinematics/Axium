@@ -152,6 +152,9 @@ EOF
             libxkbcommon = prev.libxkbcommon.override { withWaylandTools = false; };
             # llvm-strip can't handle LLVM bitcode .o — libvpx Makefile runs $(STRIP) itself
             libvpx = prev.libvpx.overrideAttrs { env.STRIP = "true"; };
+            # libglvnd marks isStatic as badPlatform but we need it to satisfy WebKit's
+            # unconditional epoxy dependency. GL is never called at runtime; LTO strips it.
+            libglvnd = prev.libglvnd.overrideAttrs { meta.badPlatforms = []; };
             # jitterentropy requires -O0 but our -O3 in NIX_CFLAGS_COMPILE overrides it.
             # Jitter RNG is supplementary — /dev/urandom is the primary entropy source.
             libgcrypt = prev.libgcrypt.overrideAttrs (old: {

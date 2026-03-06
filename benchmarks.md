@@ -300,3 +300,57 @@ session_restore or default homepage), avoiding the blank-to-real-URL swap.
 | WebProcess-1 (tab 1) | 107 | libglvnd stubs only (~700 KB) |
 | WebProcess-2 (tab 2) | 73 | none |
 | WebProcess-3 (tab 3) | 107 | libglvnd stubs only (~700 KB) |
+
+---
+
+## Binary / Distribution Size
+
+Measured 2026-03-07 from `nix build .#browser` (dynamic build, glibc, no LTO).
+
+### Axium Package
+
+| Component | Size | Notes |
+|---|---|---|
+| `.axium-unwrapped` (Odin binary) | 13 MiB | Dynamically linked browser chrome |
+| `libaxium_adblock_ext.so` | 30 KiB | Adblock extension (Rust FFI) |
+| Adblock resources (filter lists) | 11 MiB | Shipped data |
+| **axium-browser-0.1.0 package** | **14 MiB** | Binary + extension + wrapper |
+
+### Key Runtime Dependencies (own size on disk)
+
+| Library | Size |
+|---|---|
+| libWPEWebKit-2.0.so (+ headers, WPE procs) | 147 MiB |
+| axium-translate (BLIS + model loading) | 78 MiB |
+| ICU (libicudata + libicuuc + libicui18n) | 38 MiB |
+| glibc | 29 MiB |
+| GLib (libglib + libgio + libgobject) | 15 MiB |
+| GStreamer core | 6 MiB |
+| gst-plugins-base | 9 MiB |
+| gst-plugins-good | 9 MiB |
+| Adblock engine (libaxium_adblock) | 7.5 MiB |
+| SQLite | 6 MiB |
+| HarfBuzz + HarfBuzz-ICU | 6 MiB |
+| libsoup3 | 1 MiB |
+| Other (freetype, fontconfig, crypto, xkb, ...) | ~30 MiB |
+
+### Nix Closure
+
+| Metric | Value |
+|---|---|
+| Total closure size | 2.8 GiB |
+| Packages in closure | 208 |
+| Build tool leakage | ~2.1 GiB |
+| Estimated runtime-only | ~630 MiB |
+
+The closure is inflated by ~2.1 GiB of build tools (Odin compiler 170 MiB,
+clang-lib 780 MiB, LLVM-lib 479 MiB, gcc 264 MiB, python 107 MiB, etc.)
+whose store paths are embedded in the binary by the Odin compiler. These are
+not loaded at runtime.
+
+### Static+LTO Build (in progress)
+
+Target: single statically linked binary with full LTO (`-O3 -march=x86-64-v3`),
+musl libc, gstreamer-full monolithic library. No shared library dependencies,
+no closure leakage. Expected to significantly reduce distribution size since
+LTO dead code elimination strips unused symbols across all libraries.
