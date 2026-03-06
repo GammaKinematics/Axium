@@ -32,20 +32,24 @@ session_restore :: proc() -> bool {
     active_val := root["active"].(json.Float) or_else 0
     active_idx := int(active_val)
 
-    // Load first tab into existing view (view 0 already created)
+    // Create first view with its target URL directly (no about:blank intermediate)
+    // to avoid PSON ghost process from blank→real-URL origin swap.
     first_url := tabs_arr[0].(json.String) or_else ""
-    if first_url != "" {
-        engine_view_go_to(tab_entries[0].view, strings.clone_to_cstring(first_url))
-        tab_set_uri(0, first_url)
-    }
+    if first_url == "" do return false
+
+    first_view := engine_create_view(content_area.w, content_area.h, false, nil)
+    if first_view == nil do return false
+    tab_entries[0] = Tab_Entry{ view = first_view }
+    tab_count = 1
+    engine_view_go_to(first_view, strings.clone_to_cstring(first_url))
+    tab_set_uri(0, first_url)
 
     // Create additional tabs
     for i in 1..<len(tabs_arr) {
         url := tabs_arr[i].(json.String) or_else ""
         if url == "" do continue
         if tab_count >= MAX_TABS do break
-        related := tab_entries[0].view
-        view := engine_create_view(content_area.w, content_area.h, false, related)
+        view := engine_create_view(content_area.w, content_area.h, false, first_view)
         if view == nil do continue
         idx := tab_count
         tab_entries[idx] = Tab_Entry{ view = view }

@@ -19,6 +19,27 @@ let
 
     src = webkit;
 
+    postPatch = ''
+      # Axium: disable compositing — force NonCompositedFrameRenderer (Skia CPU).
+      # DrawingAreaCoordinatedGraphicsGLib.cpp:enterAcceleratedCompositingModeIfNeeded()
+      # checks settings().acceleratedCompositingEnabled() to choose LayerTreeHost vs
+      # NonCompositedFrameRenderer. Setting these to false ensures the non-GL path.
+      substituteInPlace Source/WebKit/UIProcess/wpe/WebPreferencesWPE.cpp \
+        --replace-warn 'setAcceleratedCompositingEnabled(true)' 'setAcceleratedCompositingEnabled(false)' \
+        --replace-warn 'setForceCompositingMode(true)' 'setForceCompositingMode(false)'
+
+      # Axium: don't CRASH if no EGL display — we run CPU-only.
+      # With compositing off + Skia CPU + no GStreamer GL, nothing needs EGL.
+      # Only one CRASH() in this file (confirmed), so single-line match is safe.
+      substituteInPlace Source/WebKit/WebProcess/glib/WebProcessGLib.cpp \
+        --replace-warn 'CRASH();' 'return; // Axium: no EGL needed'
+
+      # Axium: neutralize unguarded DRM_FORMAT_XRGB8888 in AcceleratedBackingStore.cpp.
+      # This DMA-BUF branch is dead code for us (we use SHM), but won't compile without libdrm.
+      substituteInPlace Source/WebKit/UIProcess/wpe/AcceleratedBackingStore.cpp \
+        --replace-warn 'if (wpe_buffer_dma_buf_get_format(dmaBuffer) == DRM_FORMAT_XRGB8888)' 'if (false) // Axium: no LIBDRM, DMA-BUF path unused'
+    '';
+
     nativeBuildInputs = with pkgs; [
       cmake
       ninja
@@ -53,19 +74,12 @@ let
       gst_all_1.gstreamer
       gst_all_1.gst-plugins-base
       gst_all_1.gst-plugins-good
-      gst_all_1.gst-plugins-bad
 
-      # Graphics (mesa for EGL — required by WPE2 platform API)
-      mesa
-      libdrm          # drm_fourcc.h pixel format constants (used by DMA-BUF code paths)
-      libgbm          # GBM — AcceleratedSurface.cpp assumes USE(GBM) unconditionally
+      # Graphics — Mesa, GBM, DRM removed: compositing disabled, no EGL init at runtime.
+      # libepoxy kept above for EGL type headers (tiny, no runtime cost).
       freetype
       fontconfig
       expat
-
-      # Misc
-      libbacktrace
-      libsecret
     ];
 
     env = {
@@ -98,6 +112,7 @@ let
       "-DENABLE_WEBGL=OFF"
 
       # Web APIs not needed
+      "-DENABLE_WEB_AUDIO=OFF"
       "-DENABLE_GAMEPAD=OFF"
       "-DENABLE_WEB_RTC=OFF"
       "-DENABLE_NOTIFICATIONS=OFF"
@@ -146,10 +161,10 @@ let
       "-DUSE_WOFF2=OFF"
       "-DUSE_LIBHYPHEN=OFF"
       "-DUSE_ATK=OFF"
-      # GBM/LIBDRM must stay ON — AcceleratedSurface.cpp and AcceleratedBackingStore.cpp
-      # assume USE(GBM) and USE(LIBDRM) unconditionally. Only used at compile time;
-      # engine.c forces SHM at runtime.
-      # "-DUSE_GBM=OFF"
+      "-DUSE_GBM=OFF"              # No GBM — compositing disabled, AcceleratedSurface GL path dead
+      "-DUSE_LIBDRM=OFF"           # No DRM — only needed with GBM
+      "-DUSE_GSTREAMER_GL=OFF"     # No GL in GStreamer video pipeline
+      "-DUSE_LIBBACKTRACE=OFF"     # Debug-only backtraces
       "-DUSE_SKIA_OPENTYPE_SVG=OFF"
 
       "-DENABLE_BUBBLEWRAP_SANDBOX=OFF"

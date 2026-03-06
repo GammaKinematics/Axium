@@ -122,18 +122,6 @@ main :: proc() {
     // Set WebKit background color + opacity (before creating views)
     engine_set_bg(theme_bg_prim, theme_bg_opacity if web_bg_opacity else 255)
 
-    // Create first WebKit view sized to content area
-    view := engine_create_view(bounds.w, bounds.h, false, nil)
-    if view == nil {
-        fmt.eprintln("Failed to create view")
-        return
-    }
-
-    tab_entries[0] = Tab_Entry{ view = view }
-    tab_count = 1
-    active_tab = 0
-    engine_set_active_view(view)
-
     // Point WebKit output directly into content area of framebuffer
     engine_set_frame_target(
         ([^]u8)(raw_data(fb)),
@@ -142,7 +130,19 @@ main :: proc() {
         bounds.w, bounds.h,
     )
 
+    // Defer view creation until URL is known to avoid PSON ghost process.
+    // (Creating a view for about:blank then navigating triggers Process Swap
+    // On Navigation, leaving a ~140 MB zombie process.)
     if !session_restore() {
+        view := engine_create_view(bounds.w, bounds.h, false, nil)
+        if view == nil {
+            fmt.eprintln("Failed to create view")
+            return
+        }
+        tab_entries[0] = Tab_Entry{ view = view }
+        tab_count = 1
+        active_tab = 0
+        engine_set_active_view(view)
         engine_view_go_to(view, "https://www.google.com")
     }
     tab_bar_build_all()

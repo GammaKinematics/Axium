@@ -44,8 +44,8 @@
     },
     "edge-onix": {
       "locked": {
-        "lastModified": 1772616667,
-        "narHash": "sha256-lE5LytGORcmgF3yfXNNpjI2/x3ZSpGSdbZN3V5WDM3k=",
+        "lastModified": 1772747178,
+        "narHash": "sha256-L325RDlhB5q2Ukadgrw2zj56RmOnzJtB3h442sa7UNk=",
         "path": "/data/Browser/Edge-Onix",
         "type": "path"
       },
@@ -56,8 +56,8 @@
     },
     "font-onix": {
       "locked": {
-        "lastModified": 1772737413,
-        "narHash": "sha256-V1QXkm1TP4o71nAzL7hwawSzdOR3VV/xGmroIYSh7mo=",
+        "lastModified": 1772747091,
+        "narHash": "sha256-A76FVnH3NzeMHEg+Hpj4R7SOInYjr30rVMQytLVqyPw=",
         "path": "/data/Browser/Font-Onix",
         "type": "path"
       },
@@ -74,8 +74,8 @@
         ]
       },
       "locked": {
-        "lastModified": 1772737640,
-        "narHash": "sha256-j4yddIwWCSzgVJ/vdajEmYD4nI+1fDMqdF6BOeGyZL8=",
+        "lastModified": 1772747140,
+        "narHash": "sha256-BsNX/0B3Mzc8qVlrBf2YH8FCD6RBDhy73bOSCIwRkv0=",
         "path": "/data/Browser/LVGL-Onix",
         "type": "path"
       },
@@ -103,11 +103,11 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1769789167,
-        "narHash": "sha256-kKB3bqYJU5nzYeIROI82Ef9VtTbu4uA3YydSk/Bioa8=",
+        "lastModified": 1772624091,
+        "narHash": "sha256-QKyJ0QGWBn6r0invrMAK8dmJoBYWoOWy7lN+UHzW1jc=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "62c8382960464ceb98ea593cb8321a2cf8f9e3e5",
+        "rev": "80bdc1e5ce51f56b19791b52b2901187931f5353",
         "type": "github"
       },
       "original": {
@@ -179,10 +179,10 @@
     "uassets": {
       "flake": false,
       "locked": {
-        "lastModified": 1772027804,
-        "narHash": "sha256-o6QTcJvPkzeEeg9xKpLKRPp2JNlq6392mmWgcxyizpg=",
+        "lastModified": 1772748109,
+        "narHash": "sha256-J1J5CqWb5yCXT05v5ucBcscVkBrR47eLG+vRUOmOqmU=",
         "ref": "refs/heads/master",
-        "rev": "5a2ea6d14486f0c456f5757dfeb9502a523756f6",
+        "rev": "526136a7a81e6cd229be100d4e591a9302d32311",
         "shallow": true,
         "type": "git",
         "url": "https://github.com/uBlockOrigin/uAssets"
@@ -213,10 +213,10 @@
     "webkit": {
       "flake": false,
       "locked": {
-        "lastModified": 1770046698,
-        "narHash": "sha256-LQl3R5WqRgyhHfjxE380yqiUeR7yDZUFLjeoMLgFxa8=",
+        "lastModified": 1772754612,
+        "narHash": "sha256-7Jn9atEXQ9zf6VW8gXiurQ8xUrKrVAhOs/dAsY8OqVA=",
         "ref": "refs/heads/main",
-        "rev": "a9689a78cb4c05b6902ceaa39f6797bba727f136",
+        "rev": "bae0eae6996b9979bcb883c272f3de45c6cb6700",
         "shallow": true,
         "type": "git",
         "url": "https://github.com/WebKit/WebKit"

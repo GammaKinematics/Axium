@@ -95,7 +95,8 @@ pkgs.stdenv.mkDerivation {
     export GIO_USE_TLS=gnutls
     export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
     export GNUTLS_SYSTEM_TRUST_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
-    export GST_PLUGIN_PATH=${pkgs.gst_all_1.gst-plugins-base}/lib/gstreamer-1.0:${pkgs.gst_all_1.gst-plugins-good}/lib/gstreamer-1.0:${pkgs.gst_all_1.gst-plugins-bad}/lib/gstreamer-1.0
+    export GST_PLUGIN_PATH=${pkgs.gst_all_1.gst-plugins-base}/lib/gstreamer-1.0:${pkgs.gst_all_1.gst-plugins-good}/lib/gstreamer-1.0
+    export WEBKIT_SKIA_ENABLE_CPU_RENDERING=1
     export AXIUM_EXT_DIR="\$(dirname "\$0")/../lib/axium/extensions"
     export AXIUM_ADBLOCK_DIR="\''${AXIUM_ADBLOCK_DIR:-${adblock.resources}/share/adblock}"
     exec "\$(dirname "\$0")/.axium-unwrapped" "\$@"
