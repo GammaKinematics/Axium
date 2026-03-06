@@ -25,7 +25,7 @@ let
       # checks settings().acceleratedCompositingEnabled() to choose LayerTreeHost vs
       # NonCompositedFrameRenderer. Setting these to false ensures the non-GL path.
       substituteInPlace Source/WebKit/UIProcess/wpe/WebPreferencesWPE.cpp \
-        --replace-warn 'setAcceleratedCompositingEnabled(true)' 'setAcceleratedCompositingEnabled(false)' \
+        --replace-warn 'setAcceleratedCompositingEnabled(true)' 'setHardwareAccelerationEnabled(false); setAcceleratedCompositingEnabled(false)' \
         --replace-warn 'setForceCompositingMode(true)' 'setForceCompositingMode(false)'
 
       # Axium: skip ALL EGL/PlatformDisplay init — we run CPU-only.
