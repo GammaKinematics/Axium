@@ -36,6 +36,14 @@ let
       substituteInPlace Source/WebCore/platform/graphics/skia/SkiaPaintingEngine.cpp \
         --replace-warn 'if (!texture->memoryMappedGPUBuffer())' 'if (false) // Axium: memoryMappedGPUBuffer requires USE(GBM)'
     '' + pkgs.lib.optionalString static_lto ''
+      # FindSoup3.cmake: pkg-config version detection fails in cross builds.
+      substituteInPlace Source/cmake/FindSoup3.cmake \
+        --replace-warn 'set(Soup3_VERSION ''${PC_Soup3_VERSION})' \
+          'set(Soup3_VERSION ''${PC_Soup3_VERSION})
+if (NOT Soup3_VERSION)
+    set(Soup3_VERSION "3.6.5")
+endif()'
+
       # Axium: static build — produce libWPEWebKit-2.0.a instead of .so.
       # No cmake flag exists for this — WebKit_LIBRARY_TYPE is hardcoded.
       # All internal libs (bmalloc, WTF, JSC, WebCore, WPEPlatform) are already OBJECT type
