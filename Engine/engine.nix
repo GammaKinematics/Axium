@@ -130,13 +130,13 @@ let
       "-DENABLE_MATHML=OFF"
 
       # UI/rendering features
-      "-DENABLE_ASYNC_SCROLLING=OFF"
-      "-DENABLE_SMOOTH_SCROLLING=OFF"
+      # ASYNC_SCROLLING must stay ON — ScrollingStateScrollingNodeCoordinated.cpp
+      # requires it when USE(COORDINATED_GRAPHICS) is enabled. Dead code at runtime
+      # with NonCompositedFrameRenderer.
+      # "-DENABLE_ASYNC_SCROLLING=OFF"
       "-DENABLE_AUTOCAPITALIZE=OFF"
       # "-DENABLE_VARIATION_FONTS=OFF"
       # "-DENABLE_DARK_MODE_CSS=OFF"
-      "-DENABLE_CURSOR_VISIBILITY=OFF"
-      "-DENABLE_MOUSE_CURSOR_SCALE=OFF"
       "-DENABLE_OFFSCREEN_CANVAS=OFF"
       "-DENABLE_OFFSCREEN_CANVAS_IN_WORKERS=OFF"
       "-DENABLE_MHTML=OFF"
