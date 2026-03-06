@@ -208,7 +208,7 @@ main :: proc() {
         // Sleep until X events, keepass socket, or translate pipe data arrives
         kfd := keepass_fd()
         tfd := translate_get_fd()
-        nfds: u32 = 1
+        nfds: u64 = 1
         pfds: [3]posix.pollfd
         pfds[0] = {fd = posix.FD(display_fd()), events = {.IN}}
         kfd_idx: int = -1

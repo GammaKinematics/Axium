@@ -28,11 +28,11 @@ let
         --replace-warn 'setAcceleratedCompositingEnabled(true)' 'setAcceleratedCompositingEnabled(false)' \
         --replace-warn 'setForceCompositingMode(true)' 'setForceCompositingMode(false)'
 
-      # Axium: don't CRASH if no EGL display — we run CPU-only.
-      # With compositing off + Skia CPU + no GStreamer GL, nothing needs EGL.
-      # Only one CRASH() in this file (confirmed), so single-line match is safe.
+      # Axium: skip ALL EGL/PlatformDisplay init — we run CPU-only.
+      # Without this, PlatformDisplaySurfaceless::create() loads Mesa (~75 MB per process).
+      # We return immediately so no EGL display is ever created.
       substituteInPlace Source/WebKit/WebProcess/glib/WebProcessGLib.cpp \
-        --replace-warn 'CRASH();' 'return; // Axium: no EGL needed'
+        --replace-warn 'if (PlatformDisplay::sharedDisplayIfExists())' 'if (true) // Axium: skip EGL init entirely'
 
       # Axium: neutralize unguarded DRM_FORMAT_XRGB8888 in AcceleratedBackingStore.cpp.
       # This DMA-BUF branch is dead code for us (we use SHM), but won't compile without libdrm.
