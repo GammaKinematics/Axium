@@ -204,6 +204,10 @@ endif()'
       "-DCMAKE_HAVE_LIBC_PTHREAD=ON"
       "-DCMAKE_USE_PTHREADS_INIT=1"
       "-DTHREADS_PREFER_PTHREAD_FLAG=ON"
+      # cmake feature-detection (try_compile) fails for these in cross/LTO builds.
+      # Both exist on musl — localtime_r is POSIX, sys/mman.h provides mmap.
+      "-DHAVE_LOCALTIME_R=ON"
+      "-DHAVE_MMAP=ON"
     ];
 
     enableParallelBuilding = true;
