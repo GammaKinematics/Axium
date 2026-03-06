@@ -38,6 +38,11 @@ let
       # This DMA-BUF branch is dead code for us (we use SHM), but won't compile without libdrm.
       substituteInPlace Source/WebKit/UIProcess/wpe/AcceleratedBackingStore.cpp \
         --replace-warn 'if (wpe_buffer_dma_buf_get_format(dmaBuffer) == DRM_FORMAT_XRGB8888)' 'if (false) // Axium: no LIBDRM, DMA-BUF path unused'
+
+      # Axium: neutralize unguarded memoryMappedGPUBuffer() call — only exists with USE(GBM).
+      # isDMABufBackedTexture is already false without GBM, so this is a no-op anyway.
+      substituteInPlace Source/WebCore/platform/graphics/skia/SkiaPaintingEngine.cpp \
+        --replace-warn 'if (!texture->memoryMappedGPUBuffer())' 'if (false) // Axium: memoryMappedGPUBuffer requires USE(GBM)'
     '';
 
     nativeBuildInputs = with pkgs; [
