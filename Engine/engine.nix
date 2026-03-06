@@ -194,6 +194,11 @@ endif()'
       # WebKit cmake has first-class support: links only gstreamer-full-1.0
       # and skips all per-library pkg-config lookups.
       "-DUSE_GSTREAMER_FULL=ON"
+      # musl has pthreads in libc — cmake's FindThreads test programs fail
+      # due to LTO bitcode, so tell it directly.
+      "-DCMAKE_HAVE_LIBC_PTHREAD=ON"
+      "-DCMAKE_USE_PTHREADS_INIT=1"
+      "-DTHREADS_PREFER_PTHREAD_FLAG=ON"
     ];
 
     enableParallelBuilding = true;
