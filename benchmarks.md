@@ -203,3 +203,100 @@ Negligible overhead.
 | WebKit IPC shm | ~18 MB | Shared memory buffers |
 | Odin binary | 4.6 MB | Axium browser chrome |
 | Adblock extension | ~3 MB | Rust FFI filter engine |
+
+---
+
+## 3-Tab Benchmark: Post-Optimization Build
+
+Measured 2026-03-06 on NixOS x86_64, 14 GB RAM.
+Same 3 tabs as above. Optimization build: Mesa eliminated from WebProcesses,
+PSON ghost fixed, hardware acceleration disabled, pure Skia CPU + SHM rendering.
+
+### Optimizations Applied
+
+| Change | Method |
+|---|---|
+| Disable compositing | `setAcceleratedCompositingEnabled(false)`, `setForceCompositingMode(false)` via substituteInPlace |
+| Disable hardware acceleration | `setHardwareAccelerationEnabled(false)` — SwapChain takes SharedMemoryWithoutGL path |
+| Skip EGL/PlatformDisplay init | `initializePlatformDisplayIfNeeded()` returns immediately — no Mesa dlopen |
+| Force CPU rendering | `WEBKIT_SKIA_ENABLE_CPU_RENDERING=1` env var |
+| Remove GPU cmake flags | `USE_GBM=OFF`, `USE_LIBDRM=OFF`, `USE_GSTREAMER_GL=OFF` |
+| Remove unused features | `ENABLE_WEB_AUDIO=OFF`, `USE_LIBBACKTRACE=OFF` |
+| Removed build deps | mesa, libgbm, libdrm, libbacktrace, libsecret, gst-plugins-bad |
+| Fix PSON ghost | Deferred view creation in main.odin/session.odin |
+| Patch unguarded code | DRM_FORMAT_XRGB8888 in AcceleratedBackingStore.cpp, memoryMappedGPUBuffer in SkiaPaintingEngine.cpp |
+
+All WebKit changes via `substituteInPlace` in engine.nix postPatch — no patch files.
+
+### Before vs After
+
+| Metric | Before | After | Change |
+|---|---|---|---|
+| **Processes** | 7 (incl. ghost) | 5 | -2 |
+| **Total RSS** | 2,204 MB | 1,162 MB | **-1,042 MB (-47%)** |
+| **Total PSS** | 1,114 MB | 838 MB | **-276 MB (-25%)** |
+| **Mesa in WebProcesses** | 197 MB RSS / 38 MB PSS | 0 | **eliminated** |
+| **PSON ghost process** | 139 MB RSS / 50 MB PSS | 0 | **eliminated** |
+
+### Process Summary
+
+| Process | RSS | PSS | Private | Shared | Threads | FDs |
+|---|---|---|---|---|---|---|
+| Browser UI (Odin+LVGL) | 95.5 MB | 51.4 MB | 28.1 MB | 67.4 MB | 11 | 38 |
+| NetworkProcess | 102.3 MB | 72.6 MB | 63.9 MB | 38.5 MB | 16 | 75 |
+| WebProcess-1 (tab 1) | 359.8 MB | 276.8 MB | 226.4 MB | 132.4 MB | 13 | 35 |
+| WebProcess-2 (tab 2) | 83.7 MB | 39.1 MB | 23.6 MB | 60.1 MB | 11 | 27 |
+| WebProcess-3 (tab 3) | 520.5 MB | 488.3 MB | 442.3 MB | 123.4 MB | 18 | 30 |
+| **Total** | **1,162 MB** | **838 MB** | **784 MB** | **422 MB** | **69** | **205** |
+
+### Mesa Stack — Eliminated
+
+Previously loaded in every WebProcess, now completely absent:
+
+| Library | Was (per process) | Now |
+|---|---|---|
+| libLLVM.so.21.1 | ~160 MB mapped | gone |
+| libgallium-25.2.6.so | ~50 MB mapped | gone |
+| libEGL_mesa.so | ~1 MB | gone |
+| libgbm.so | ~20 KB | gone |
+| mesa_shader_cache | ~1.3 MB mmap | gone |
+
+Only lightweight libglvnd stubs remain in 2 of 3 WebProcesses (~700 KB
+total): libEGL.so, libGL.so, libGLX.so — loaded as NEEDED deps of libepoxy,
+no Mesa drivers behind them. One WebProcess is completely clean (zero GL libs).
+
+### PSON Ghost Process — Eliminated
+
+The pre-optimization build had an extra idle WebProcess (139 MB RSS, 50 MB PSS)
+caused by WebKit's Process Swap On Navigation. Creating view 0 for `about:blank`
+then navigating to a real URL triggered a process swap, leaving the original
+process alive.
+
+**Fix:** deferred view creation in main.odin until URL is known (from
+session_restore or default homepage), avoiding the blank-to-real-URL swap.
+
+### Top RSS Contributors (per WebProcess)
+
+| Library | RSS (range) | Notes |
+|---|---|---|
+| Anonymous mappings | 18-322 MB | JS heap, DOM, bitmaps — the web page itself |
+| libWPEWebKit-2.0.so | 43-82 MB | WebKit engine, shared across processes |
+| libaxium_adblock.so | 2.4-2.8 MB | Adblock filter engine (Rust FFI) |
+| ICU (i18n + data + uc) | 2.0-7.1 MB | Unicode / internationalization |
+| glibc | 1.7 MB | C runtime |
+| gnutls | 1.7 MB | TLS stack |
+| libgio | 1.7 MB | GLib I/O |
+| libstdc++ | 1.6 MB | C++ runtime |
+| gstreamer | 1.3 MB | Media framework |
+| harfbuzz | 1.1 MB | Text shaping |
+| libglib | 1.0 MB | GLib core |
+| freetype | 0.8 MB | Font rasterization |
+| libepoxy | 0.8 MB | EGL type headers only |
+
+### Loaded Libraries Per WebProcess
+
+| WebProcess | Unique .so files | GL libs loaded |
+|---|---|---|
+| WebProcess-1 (tab 1) | 107 | libglvnd stubs only (~700 KB) |
+| WebProcess-2 (tab 2) | 73 | none |
+| WebProcess-3 (tab 3) | 107 | libglvnd stubs only (~700 KB) |

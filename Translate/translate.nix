@@ -1,9 +1,10 @@
-{ pkgs, translations, translation-models }:
+{ pkgs, hostPkgs ? pkgs, translations, translation-models, static_lto ? false }:
 
 let
-  # Generate Odin source with model registry from Mozilla Remote Settings
-  modelsRegistry = pkgs.runCommand "translate_models_gen.odin" {
-    nativeBuildInputs = [ pkgs.jq ];
+  # Generate Odin source with model registry from Mozilla Remote Settings.
+  # Uses hostPkgs for build tools (jq) — this is a native build-time operation.
+  modelsRegistry = hostPkgs.runCommand "translate_models_gen.odin" {
+    nativeBuildInputs = [ hostPkgs.jq ];
   } ''
     jq -r '
       .data
@@ -52,7 +53,7 @@ let
     version = "0.1.0";
     src = "${translations}/inference";
 
-    nativeBuildInputs = with pkgs; [ cmake pkg-config ];
+    nativeBuildInputs = with hostPkgs; [ cmake pkg-config ];
 
     buildInputs = with pkgs; [
       blis
@@ -129,11 +130,11 @@ VEOF
       void sgeqrf_(void) { __builtin_trap(); }
       void sorgqr_(void) { __builtin_trap(); }
       STUB
-      cc -c -o lapack_stubs.o lapack_stubs.c
+      $CC -c -o lapack_stubs.o lapack_stubs.c
 
       # Compile our C FFI wrapper using the same include paths cmake set up
       src=$NIX_BUILD_TOP/$sourceRoot
-      c++ -c -o translate.o $src/axium_translate.cpp \
+      $CXX -c -o translate.o $src/axium_translate.cpp \
         -I$src \
         -I$src/src \
         -I$src/marian-fork/src \

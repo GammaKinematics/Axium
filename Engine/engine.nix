@@ -1,19 +1,10 @@
-{ pkgs, webkit, pages,
-  # Compiler optimizations
-  optimize ? false,        # -O3 (disabled for debug build)
-  lto ? false,             # -flto (warning: very slow for WebKit)
-  march ? null,            # "native", "x86-64-v3", etc.
-  fastMath ? false,        # -ffast-math
+{ pkgs, hostPkgs ? pkgs, webkit, pages,
+  static_lto ? false,
 }:
 
 let
-  optFlags = pkgs.lib.optionals optimize [ "-O3" ]
-    ++ pkgs.lib.optionals (march != null) [ "-march=${march}" ]
-    ++ pkgs.lib.optionals fastMath [ "-ffast-math" ]
-    ++ pkgs.lib.optionals lto [ "-flto" ];
-  optFlagsStr = builtins.concatStringsSep " " optFlags;
-
-  webkitEngine = pkgs.stdenv.mkDerivation {
+  # WebKit uses stdenvNoLto when static — cmake handles LTO via -DLTO_MODE=thin
+  webkitEngine = (if static_lto then pkgs.stdenvNoLto else pkgs.stdenv).mkDerivation {
     pname = "axium-engine";
     version = "2.53.0";
 
@@ -43,9 +34,23 @@ let
       # isDMABufBackedTexture is already false without GBM, so this is a no-op anyway.
       substituteInPlace Source/WebCore/platform/graphics/skia/SkiaPaintingEngine.cpp \
         --replace-warn 'if (!texture->memoryMappedGPUBuffer())' 'if (false) // Axium: memoryMappedGPUBuffer requires USE(GBM)'
+    '' + pkgs.lib.optionalString static_lto ''
+      # Axium: static build — produce libWPEWebKit-2.0.a instead of .so.
+      # No cmake flag exists for this — WebKit_LIBRARY_TYPE is hardcoded.
+      # All internal libs (bmalloc, WTF, JSC, WebCore, WPEPlatform) are already OBJECT type
+      # and get folded into this single archive.
+      substituteInPlace Source/cmake/WebKitCommon.cmake \
+        --replace-warn 'set(WebKit_LIBRARY_TYPE SHARED)' 'set(WebKit_LIBRARY_TYPE STATIC)'
+
+      # Ensure cmake installs the static archive (LIBRARY only covers shared libs).
+      substituteInPlace Source/WebKit/CMakeLists.txt \
+        --replace-warn \
+          'install(TARGETS WebKit WebProcess NetworkProcess' \
+          'install(TARGETS WebKit WebProcess NetworkProcess
+    ARCHIVE DESTINATION "''${LIB_INSTALL_DIR}"'
     '';
 
-    nativeBuildInputs = with pkgs; [
+    nativeBuildInputs = with hostPkgs; [
       cmake
       ninja
       pkg-config
@@ -86,10 +91,6 @@ let
       fontconfig
       expat
     ];
-
-    env = {
-      NIX_CFLAGS_COMPILE = pkgs.lib.concatStringsSep " " optFlags;
-    };
 
     cmakeFlags = [
       "-DPORT=WPE"
@@ -173,6 +174,12 @@ let
       "-DUSE_SKIA_OPENTYPE_SVG=OFF"
 
       "-DENABLE_BUBBLEWRAP_SANDBOX=OFF"
+    ] ++ pkgs.lib.optionals static_lto [
+      # Thin LTO for WebKit only (too large for full LTO linking).
+      # WebKit's cmake adds -flto=thin to C/CXX/linker flags and enables LLD.
+      # Requires COMPILER_IS_CLANG (provided by pkgsLto's useLLVM = true).
+      # Deps use full LTO via the crossOverlay — compatible with thin here.
+      "-DLTO_MODE=thin"
     ];
 
     enableParallelBuilding = true;
@@ -191,7 +198,7 @@ let
 
     src = ./.;
 
-    nativeBuildInputs = [ pkgs.pkg-config ];
+    nativeBuildInputs = [ hostPkgs.pkg-config ];
 
     buildInputs = [
       webkitEngine
@@ -202,10 +209,10 @@ let
     ];
 
     buildPhase = ''
-      cc -c engine.c -o engine.o \
+      $CC -c engine.c -o engine.o \
         -I${pages}/include \
         $(pkg-config --cflags wpe-webkit-2.0 wpe-platform-2.0 glib-2.0 gobject-2.0 sqlite3)
-      ar rcs libengine.a engine.o
+      $AR rcs libengine.a engine.o
     '';
 
     installPhase = ''

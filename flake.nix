@@ -52,15 +52,48 @@
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
 
-      pages = import ./Pages/pages.nix { inherit pkgs; };
+      # ─── Static+LTO build options ───
+      o3 = true;              # -O3 for all compilations
+      march = "x86-64-v3";    # AVX2/BMI2 — or null for baseline x86-64
 
-      engine = import ./Engine/engine.nix {
-        inherit pkgs webkit pages;
-        optimize = false;
-        march = null;
-        fastMath = false;
-        lto = false;
+      # Static+LTO package set (musl + clang + full LTO + optimizations).
+      # Follows the Fex pattern: useLLVM gives clang + compiler-rt + lld,
+      # crossOverlay injects -flto so all compiled code is LLVM bitcode.
+      # WebKit itself uses -DLTO_MODE=thin (too large for full LTO linking).
+      pkgsLto = import nixpkgs {
+        localSystem = system;
+        crossSystem = {
+          config = "x86_64-unknown-linux-musl";
+          isStatic = true;
+          useLLVM = true;
+        };
+        crossOverlays = [
+          (final: prev: {
+            # Base opt flags without -flto (for builds that handle LTO themselves, e.g. WebKit cmake)
+            stdenvNoLto = prev.stdenvAdapters.withCFlags
+              (pkgs.lib.optionals o3 [ "-O3" ]
+                ++ pkgs.lib.optionals (march != null) [ "-march=${march}" ])
+              prev.stdenv;
+            stdenv = prev.stdenvAdapters.withCFlags
+              ([ "-flto" ]
+                ++ pkgs.lib.optionals o3 [ "-O3" ]
+                ++ pkgs.lib.optionals (march != null) [ "-march=${march}" ])
+              prev.stdenv;
+            # Test binaries segfault linking bitcode .o without -flto at link time
+            zlib = prev.zlib.overrideAttrs { doCheck = false; };
+            brotli = prev.brotli.overrideAttrs { doCheck = false; };
+            bzip2 = prev.bzip2.overrideAttrs { doCheck = false; };
+            libpng = prev.libpng.overrideAttrs { doCheck = false; doInstallCheck = false; };
+            libxkbcommon = (prev.libxkbcommon.override {
+              withWaylandTools = false;
+            }).overrideAttrs { doCheck = false; };
+          })
+        ];
       };
+
+      # ─── Static-independent values ───
+
+      pages = import ./Pages/pages.nix { inherit pkgs; };
 
       generatedBindings = bindings-onix.lib.generate {
         package = "axium";
@@ -68,18 +101,7 @@
         mouse = [{ backend = "xcb"; }];
       };
 
-      lvgl = lvgl-onix.lib.mkLvgl {
-        hostPkgs = pkgs;
-        inherit pkgs;
-        widgets = ["button" "label" "textarea" "arc"];
-      };
-
       lvglBindings = lvgl-onix.lib.bindings { package = "axium"; };
-
-      themeOdin = theme-onix.lib.generate {
-        package = "axium";
-        theme = lvgl.passthru.theme;
-      };
 
       fontSources = font-onix.lib.sources { package = "axium"; };
 
@@ -122,22 +144,77 @@
 
       edgeSources = edge-onix.lib.sources;
 
+      # ─── Dynamic build (default, unchanged) ───
+
+      engine = import ./Engine/engine.nix {
+        inherit pkgs webkit pages;
+      };
+
+      lvgl = lvgl-onix.lib.mkLvgl {
+        hostPkgs = pkgs;
+        inherit pkgs;
+        widgets = ["button" "label" "textarea" "arc"];
+      };
+
+      themeOdin = theme-onix.lib.generate {
+        package = "axium";
+        theme = lvgl.passthru.theme;
+      };
+
       adblock = import ./Adblock/adblock.nix { inherit pkgs adblock-rust engine uassets ublock; };
 
       keepass = import ./Keepass/keepass.nix { inherit pkgs; };
 
       translate = import ./Translate/translate.nix { inherit pkgs translations translation-models; };
 
+      # ─── Static+LTO build ───
+
+      sEngine = import ./Engine/engine.nix {
+        pkgs = pkgsLto; hostPkgs = pkgs;
+        inherit webkit pages;
+        static_lto = true;
+      };
+
+      sLvgl = lvgl-onix.lib.mkLvgl {
+        hostPkgs = pkgs;
+        pkgs = pkgsLto;
+        lto = true;
+        widgets = ["button" "label" "textarea" "arc"];
+      };
+
+      sTranslate = import ./Translate/translate.nix {
+        pkgs = pkgsLto; hostPkgs = pkgs;
+        inherit translations translation-models;
+        static_lto = true;
+      };
+
+      sKeepass = import ./Keepass/keepass.nix { pkgs = pkgsLto; };
+
     in {
       packages.${system} = rec {
         inherit (adblock) lib ext resources;
         inherit (engine) webkit shim pages;
+        static-webkit = sEngine.webkit;
         translate-lib = translate.lib;
 
         browser = import ./Browser/browser.nix {
           inherit pkgs engine pages display-onix generatedBindings
                   lvgl lvglBindings themeOdin fontSources iconFont edgeSources
                   adblock keepass translate;
+        };
+
+        static = import ./Browser/browser.nix {
+          pkgs = pkgsLto;
+          hostPkgs = pkgs;
+          engine = sEngine;
+          inherit pages display-onix generatedBindings
+                  lvglBindings fontSources iconFont edgeSources
+                  adblock themeOdin;
+          lvgl = sLvgl;
+          keepass = sKeepass;
+          translate = sTranslate;
+          inherit o3 march;
+          static_lto = true;
         };
 
         default = browser;
