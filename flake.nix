@@ -95,6 +95,10 @@
             # Test failures under cross/LTO/march — bitcode or AVX2 on non-AVX2 builder
             argp-standalone = prev.argp-standalone.overrideAttrs { doCheck = false; };
             expat = prev.expat.overrideAttrs { doCheck = false; };
+            # Bash typedef bool conflicts with clang 21 C23 default
+            bash = prev.bash.overrideAttrs (old: {
+              NIX_CFLAGS_COMPILE = (old.NIX_CFLAGS_COMPILE or "") + " -std=gnu17";
+            });
           })
         ];
       };
