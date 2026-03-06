@@ -67,6 +67,9 @@
           isStatic = true;
           useLLVM = true;
         };
+        # Many packages mark isStatic as badPlatform (dlopen-based).
+        # We only need them as build deps — allow them all.
+        config.allowUnsupportedSystem = true;
         crossOverlays = [
           (final: prev: {
             # Base opt flags without -flto (for builds that handle LTO themselves, e.g. WebKit cmake)
@@ -87,6 +90,8 @@
             libxkbcommon = (prev.libxkbcommon.override {
               withWaylandTools = false;
             }).overrideAttrs { doCheck = false; };
+            # Go segfaults during bootstrap in cross/LTO env — skip it, we don't need captree
+            libcap = prev.libcap.override { withGo = false; };
           })
         ];
       };
