@@ -204,10 +204,35 @@ endif()'
       "-DCMAKE_HAVE_LIBC_PTHREAD=ON"
       "-DCMAKE_USE_PTHREADS_INIT=1"
       "-DTHREADS_PREFER_PTHREAD_FLAG=ON"
-      # cmake feature-detection (try_compile) fails for these in cross/LTO builds.
-      # Both exist on musl — localtime_r is POSIX, sys/mman.h provides mmap.
-      "-DHAVE_LOCALTIME_R=ON"
-      "-DHAVE_MMAP=ON"
+      # cmake feature-detection (try_compile/check_include_file/check_symbol_exists)
+      # fails in cross/LTO builds — test binaries are LLVM bitcode and can't link.
+      # WebKit's WEBKIT_CHECK_HAVE_* macros store results in ${VAR}_value cache
+      # variables, then SET_AND_EXPOSE_TO_BUILD overwrites any -DVAR=ON we pass.
+      # So we must set the _value suffixed variables to skip the checks entirely.
+      #
+      # Headers present on musl:
+      "-DHAVE_FEATURES_H_value=1"       # minimal features.h (no __GLIBC__)
+      "-DHAVE_ERRNO_H_value=1"
+      "-DHAVE_LANGINFO_H_value=1"
+      "-DHAVE_MMAP_value=1"             # sys/mman.h
+      "-DHAVE_SYS_PARAM_H_value=1"
+      "-DHAVE_SYS_TIME_H_value=1"
+      "-DHAVE_LINUX_MEMFD_H_value=1"    # kernel headers
+      # Functions present on musl:
+      "-DHAVE_LOCALTIME_R_value=1"
+      "-DHAVE_STATX_value=1"            # musl 1.2.5+
+      "-DHAVE_TIMEGM_value=1"
+      "-DHAVE_TIMERFD_value=1"
+      "-DHAVE_VASPRINTF_value=1"
+      # Symbols present on musl:
+      "-DHAVE_REGEX_H_value=1"          # regexec in regex.h
+      "-DHAVE_SIGNAL_H_value=1"         # SIGTRAP in signal.h
+      # Struct members present on musl:
+      "-DHAVE_TM_GMTOFF_value=1"
+      "-DHAVE_TM_ZONE_value=1"
+      # Not on musl (cmake fail = correct): HAVE_SYS_TIMEB_H, HAVE_PTHREAD_NP_H,
+      # HAVE_ALIGNED_MALLOC, HAVE_MALLOC_TRIM, HAVE_PTHREAD_MAIN_NP,
+      # HAVE_MAP_ALIGNED, HAVE_SHM_ANON, HAVE_TIMINGSAFE_BCMP, HAVE_STAT_BIRTHTIME
     ];
 
     enableParallelBuilding = true;
