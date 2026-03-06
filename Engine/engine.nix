@@ -1,12 +1,13 @@
 { pkgs, hostPkgs ? pkgs, webkit, pages,
   static_lto ? false,
+  gstreamer ? null,  # gstreamer-full static library (required when static_lto)
 }:
 
 let
   # WebKit uses stdenvNoLto when static — cmake handles LTO via -DLTO_MODE=thin
   webkitEngine = (if static_lto then pkgs.stdenvNoLto else pkgs.stdenv).mkDerivation {
     pname = "axium-engine";
-    version = "2.53.0";
+    version = "2.51.92";
 
     src = webkit;
 
@@ -68,7 +69,6 @@ let
       harfbuzzFull
       icu
       libjpeg
-      libepoxy
       libgcrypt
       libgpg-error
       libsoup_3
@@ -80,17 +80,19 @@ let
       zlib
       libwebp
 
-      # GStreamer (video/audio playback)
+    ] ++ (if static_lto then [ gstreamer ] else with pkgs; [
+      # GStreamer (video/audio playback) — nixpkgs packages for dynamic build
       gst_all_1.gstreamer
       gst_all_1.gst-plugins-base
       gst_all_1.gst-plugins-good
-
+      # libepoxy — EGL type headers; libglvnd (its dep) refuses static builds
+      libepoxy
+    ]) ++ (with pkgs; [
       # Graphics — Mesa, GBM, DRM removed: compositing disabled, no EGL init at runtime.
-      # libepoxy kept above for EGL type headers (tiny, no runtime cost).
       freetype
       fontconfig
       expat
-    ];
+    ]);
 
     cmakeFlags = [
       "-DPORT=WPE"
@@ -180,6 +182,10 @@ let
       # Requires COMPILER_IS_CLANG (provided by pkgsLto's useLLVM = true).
       # Deps use full LTO via the crossOverlay — compatible with thin here.
       "-DLTO_MODE=thin"
+      # Use monolithic gstreamer-full-1.0 instead of individual gstreamer libs.
+      # WebKit cmake has first-class support: links only gstreamer-full-1.0
+      # and skips all per-library pkg-config lookups.
+      "-DUSE_GSTREAMER_FULL=ON"
     ];
 
     enableParallelBuilding = true;

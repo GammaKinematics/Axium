@@ -1,6 +1,7 @@
 { pkgs, hostPkgs ? pkgs, engine, pages, display-onix, generatedBindings
 , lvgl, lvglBindings, themeOdin, fontSources, iconFont, edgeSources
 , adblock, keepass, translate
+, gstreamer ? null  # gstreamer-full for static build
 , static_lto ? false
 , o3 ? false
 , march ? null
@@ -46,7 +47,10 @@ pkgs.stdenv.mkDerivation {
     pkgs.libsoup_3      # required by wpe-webkit-2.0.pc
     pkgs.libxkbcommon   # WPEKeymapXKB.h
     pkgs.sqlite          # history DB (linked via libengine.a)
-  ] ++ displayDeps ++ lvgl.passthru.deps ++ keepass.buildInputs ++ translate.buildInputs;
+  ] ++ displayDeps ++ lvgl.passthru.deps ++ keepass.buildInputs ++ translate.buildInputs
+    ++ pkgs.lib.optionals static_lto [
+      gstreamer pkgs.libogg pkgs.libvorbis pkgs.libopus pkgs.libvpx
+    ];
 
   buildPhase = ''
     # Copy Display-Onix backend source
@@ -129,8 +133,11 @@ pkgs.stdenv.mkDerivation {
       -L${pkgs.libgpg-error}/lib -lgpg-error \
       -L${pkgs.libtasn1}/lib -ltasn1 \
       -L${pkgs.libxkbcommon}/lib -lxkbcommon \
-      -L${pkgs.gst_all_1.gstreamer}/lib -lgstreamer-1.0 -lgstbase-1.0 \
-      -L${pkgs.gst_all_1.gst-plugins-base}/lib -lgstvideo-1.0 -lgstaudio-1.0 -lgstpbutils-1.0 -lgstapp-1.0 -lgstfft-1.0 -lgsttag-1.0 \
+      -L${gstreamer}/lib -lgstreamer-full-1.0 \
+      -L${pkgs.libogg}/lib -logg \
+      -L${pkgs.libvorbis}/lib -lvorbis -lvorbisenc \
+      -L${pkgs.libopus}/lib -lopus \
+      -L${pkgs.libvpx}/lib -lvpx \
       -lm -lpthread -lc++
   '' else ''
     # ═══ Dynamic build (unchanged) ═══

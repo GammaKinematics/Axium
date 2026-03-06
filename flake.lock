@@ -66,6 +66,24 @@
         "type": "path"
       }
     },
+    "gstreamer-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1772071779,
+        "narHash": "sha256-O/u4KBJGXXYc0dMZo5D8fwai3r7ISE7WsNzO+T2qrKI=",
+        "ref": "refs/tags/1.28.1",
+        "rev": "dcb37e20147e3b59344bab1e1cbb57e908cc6b92",
+        "shallow": true,
+        "type": "git",
+        "url": "https://gitlab.freedesktop.org/gstreamer/gstreamer.git"
+      },
+      "original": {
+        "ref": "refs/tags/1.28.1",
+        "shallow": true,
+        "type": "git",
+        "url": "https://gitlab.freedesktop.org/gstreamer/gstreamer.git"
+      }
+    },
     "lvgl-onix": {
       "inputs": {
         "lvgl-src": "lvgl-src",
@@ -74,8 +92,8 @@
         ]
       },
       "locked": {
-        "lastModified": 1772747140,
-        "narHash": "sha256-BsNX/0B3Mzc8qVlrBf2YH8FCD6RBDhy73bOSCIwRkv0=",
+        "lastModified": 1772823554,
+        "narHash": "sha256-WDUCSWQKkyM5kquD3qpmJ11Sjgn7ZAgu9MQ9YfmpUfg=",
         "path": "/data/Browser/LVGL-Onix",
         "type": "path"
       },
@@ -87,15 +105,16 @@
     "lvgl-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1770060314,
-        "narHash": "sha256-mybZ1/xsIGNy3FzENbOPClTEJtNPoZ8ZhSj32EF8iww=",
-        "ref": "refs/heads/master",
-        "rev": "d6065bf94a279a9355f25e8404e5c39d93854ee5",
+        "lastModified": 1771430977,
+        "narHash": "sha256-U5Pbm1xrDhkqwSkKT6eMWbGh0UB/yHaLqYhiibPFJaI=",
+        "ref": "refs/tags/v9.5.0",
+        "rev": "85aa60d18b3d5e5588d7b247abf90198f07c8a63",
         "shallow": true,
         "type": "git",
         "url": "https://github.com/lvgl/lvgl"
       },
       "original": {
+        "ref": "refs/tags/v9.5.0",
         "shallow": true,
         "type": "git",
         "url": "https://github.com/lvgl/lvgl"
@@ -124,6 +143,7 @@
         "display-onix": "display-onix",
         "edge-onix": "edge-onix",
         "font-onix": "font-onix",
+        "gstreamer-src": "gstreamer-src",
         "lvgl-onix": "lvgl-onix",
         "nixpkgs": "nixpkgs",
         "theme-onix": "theme-onix",
@@ -213,15 +233,16 @@
     "webkit": {
       "flake": false,
       "locked": {
-        "lastModified": 1772754612,
-        "narHash": "sha256-7Jn9atEXQ9zf6VW8gXiurQ8xUrKrVAhOs/dAsY8OqVA=",
-        "ref": "refs/heads/main",
-        "rev": "bae0eae6996b9979bcb883c272f3de45c6cb6700",
+        "lastModified": 1772186026,
+        "narHash": "sha256-3VpIeyM91DflakJqSvwTQfZ13D83BKepVTY4wT0KpAo=",
+        "ref": "refs/tags/wpewebkit-2.51.92",
+        "rev": "df949cc992246e030a22224e26ca16bc471532d9",
         "shallow": true,
         "type": "git",
         "url": "https://github.com/WebKit/WebKit"
       },
       "original": {
+        "ref": "refs/tags/wpewebkit-2.51.92",
         "shallow": true,
         "type": "git",
         "url": "https://github.com/WebKit/WebKit"

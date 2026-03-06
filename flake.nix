@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
     webkit = {
-      url = "git+https://github.com/WebKit/WebKit?shallow=1";
+      url = "git+https://github.com/WebKit/WebKit?ref=refs/tags/wpewebkit-2.51.92&shallow=1";
       flake = false;
     };
 
@@ -45,9 +45,14 @@
       url = "file+https://firefox.settings.services.mozilla.com/v1/buckets/main/collections/translations-models/records";
       flake = false;
     };
+
+    gstreamer-src = {
+      url = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer.git?ref=refs/tags/1.28.1&shallow=1";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs, webkit, display-onix, bindings-onix, lvgl-onix, theme-onix, font-onix, edge-onix, adblock-rust, uassets, ublock, translations, translation-models }:
+  outputs = { self, nixpkgs, webkit, display-onix, bindings-onix, lvgl-onix, theme-onix, font-onix, edge-onix, adblock-rust, uassets, ublock, translations, translation-models, gstreamer-src }:
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
@@ -67,9 +72,6 @@
           isStatic = true;
           useLLVM = true;
         };
-        # Many packages mark isStatic as badPlatform (dlopen-based).
-        # We only need them as build deps — allow them all.
-        config.allowUnsupportedSystem = true;
         crossOverlays = [
           (final: prev: {
             # Base opt flags without -flto (for builds that handle LTO themselves, e.g. WebKit cmake)
@@ -82,24 +84,88 @@
                 ++ pkgs.lib.optionals o3 [ "-O3" ]
                 ++ pkgs.lib.optionals (march != null) [ "-march=${march}" ])
               prev.stdenv;
-            # Test binaries segfault linking bitcode .o without -flto at link time
-            zlib = prev.zlib.overrideAttrs { doCheck = false; };
-            brotli = prev.brotli.overrideAttrs { doCheck = false; };
-            bzip2 = prev.bzip2.overrideAttrs { doCheck = false; };
-            libpng = prev.libpng.overrideAttrs { doCheck = false; doInstallCheck = false; };
-            libxkbcommon = (prev.libxkbcommon.override {
-              withWaylandTools = false;
-            }).overrideAttrs { doCheck = false; };
+          })
+          # Second overlay: globally disable checks + targeted fixes.
+          # Test binaries segfault linking bitcode .o without -flto — tests are
+          # useless in this env.
+          (final: prev: {
+            stdenv = prev.stdenv // {
+              mkDerivation = args:
+                let
+                  inject = a: a // { doCheck = false; doInstallCheck = false; };
+                in prev.stdenv.mkDerivation (
+                  if builtins.isFunction args then (finalAttrs: inject (args finalAttrs))
+                  else inject args
+                );
+            };
+            # Bash 5.3 typedef bool conflicts with clang 21 C23 default.
+            # All three bash variants are independent callPackage invocations.
+            bashNonInteractive = prev.bashNonInteractive.overrideAttrs (old: {
+              postPatch = (old.postPatch or "") + ''
+                substituteInPlace bashansi.h \
+                  --replace-fail 'typedef unsigned char bool;' \
+                    '#if __STDC_VERSION__ >= 202311L
+  #include <stdbool.h>
+#else
+  typedef unsigned char bool;
+#endif'
+              '';
+            });
+            bash = prev.bash.overrideAttrs (old: {
+              postPatch = (old.postPatch or "") + ''
+                substituteInPlace bashansi.h \
+                  --replace-fail 'typedef unsigned char bool;' \
+                    '#if __STDC_VERSION__ >= 202311L
+  #include <stdbool.h>
+#else
+  typedef unsigned char bool;
+#endif'
+              '';
+            });
+            bashInteractive = prev.bashInteractive.overrideAttrs (old: {
+              postPatch = (old.postPatch or "") + ''
+                substituteInPlace bashansi.h \
+                  --replace-fail 'typedef unsigned char bool;' \
+                    '#if __STDC_VERSION__ >= 202311L
+  #include <stdbool.h>
+#else
+  typedef unsigned char bool;
+#endif'
+              '';
+            });
+            # glib's meson runs cc.run() checks during configure (frexpl, printf).
+            # With -flto, some test binaries crash (bitcode issues). Tell meson
+            # it can't run host binaries — the gnulib fallback correctly assumes
+            # frexpl/printf work on linux.
+            glib = prev.glib.overrideAttrs (old: {
+              preConfigure = (old.preConfigure or "") + ''
+                cat > no-exe-wrapper.txt <<'EOF'
+[properties]
+needs_exe_wrapper = true
+EOF
+                mesonFlagsArray+=(--cross-file="$PWD/no-exe-wrapper.txt")
+              '';
+            });
             # Go segfaults during bootstrap in cross/LTO env — skip it, we don't need captree
             libcap = prev.libcap.override { withGo = false; };
-            # Test failures under cross/LTO/march — bitcode or AVX2 on non-AVX2 builder
-            argp-standalone = prev.argp-standalone.overrideAttrs { doCheck = false; };
-            expat = prev.expat.overrideAttrs { doCheck = false; };
-            # Bash typedef bool conflicts with clang 21 C23 default
-            bash = prev.bash.overrideAttrs (old: {
-              env = (old.env or {}) // {
-                NIX_CFLAGS_COMPILE = (old.env.NIX_CFLAGS_COMPILE or "") + " -std=gnu17";
-              };
+            # wayland tools not needed, pulls unnecessary deps
+            libxkbcommon = prev.libxkbcommon.override { withWaylandTools = false; };
+            # llvm-strip can't handle LLVM bitcode .o — libvpx Makefile runs $(STRIP) itself
+            libvpx = prev.libvpx.overrideAttrs { env.STRIP = "true"; };
+            # jitterentropy requires -O0 but our -O3 in NIX_CFLAGS_COMPILE overrides it.
+            # Jitter RNG is supplementary — /dev/urandom is the primary entropy source.
+            libgcrypt = prev.libgcrypt.overrideAttrs (old: {
+              configureFlags = (old.configureFlags or []) ++ [ "--disable-jent-support" ];
+            });
+            # freetype: LLVM cross toolchain exposes windres, which configure detects
+            # and then tries to compile ftver.rc (Windows resource) — fails on Linux.
+            # Setting RC="" before configure prevents detection. depsBuildBuild provides
+            # a native CC that configure needs for build-time tools in cross mode.
+            freetype = prev.freetype.overrideAttrs (old: {
+              depsBuildBuild = (old.depsBuildBuild or []) ++ [ prev.buildPackages.stdenv.cc ];
+              preConfigure = (old.preConfigure or "") + ''
+                export RC=""
+              '';
             });
           })
         ];
@@ -183,9 +249,15 @@
 
       # ─── Static+LTO build ───
 
+      sGstreamer = import ./Engine/gstreamer-full.nix {
+        pkgs = pkgsLto; hostPkgs = pkgs;
+        inherit gstreamer-src;
+      };
+
       sEngine = import ./Engine/engine.nix {
         pkgs = pkgsLto; hostPkgs = pkgs;
         inherit webkit pages;
+        gstreamer = sGstreamer;
         static_lto = true;
       };
 
@@ -209,6 +281,7 @@
         inherit (adblock) lib ext resources;
         inherit (engine) webkit shim pages;
         static-webkit = sEngine.webkit;
+        static-gstreamer = sGstreamer;
         translate-lib = translate.lib;
 
         browser = import ./Browser/browser.nix {
@@ -221,6 +294,7 @@
           pkgs = pkgsLto;
           hostPkgs = pkgs;
           engine = sEngine;
+          gstreamer = sGstreamer;
           inherit pages display-onix generatedBindings
                   lvglBindings fontSources iconFont edgeSources
                   adblock themeOdin;
