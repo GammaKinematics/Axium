@@ -44,6 +44,11 @@ if (NOT Soup3_VERSION)
     set(Soup3_VERSION "3.6.5")
 endif()'
 
+      # GStreamerChecks.cmake: checks PC_GSTREAMER_FULL_FOUND (pkg-config) which fails
+      # in cross builds. Patch to check the actual library variable instead.
+      substituteInPlace Source/cmake/GStreamerChecks.cmake \
+        --replace-warn 'NOT PC_GSTREAMER_FULL_FOUND' 'NOT GSTREAMER_FULL_LIBRARIES'
+
       # Axium: static build — produce libWPEWebKit-2.0.a instead of .so.
       # No cmake flag exists for this — WebKit_LIBRARY_TYPE is hardcoded.
       # All internal libs (bmalloc, WTF, JSC, WebCore, WPEPlatform) are already OBJECT type
