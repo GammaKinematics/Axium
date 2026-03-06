@@ -97,7 +97,9 @@
             expat = prev.expat.overrideAttrs { doCheck = false; };
             # Bash typedef bool conflicts with clang 21 C23 default
             bash = prev.bash.overrideAttrs (old: {
-              NIX_CFLAGS_COMPILE = (old.NIX_CFLAGS_COMPILE or "") + " -std=gnu17";
+              env = (old.env or {}) // {
+                NIX_CFLAGS_COMPILE = (old.env.NIX_CFLAGS_COMPILE or "") + " -std=gnu17";
+              };
             });
           })
         ];
