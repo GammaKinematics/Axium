@@ -79,6 +79,7 @@ endif()'
     buildInputs = with pkgs; [
       # Core
       glib
+      libffi            # transitive dep of gobject (gclosure marshalling)
       harfbuzzFull
       icu
       libjpeg
