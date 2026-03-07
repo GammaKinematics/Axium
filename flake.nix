@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
     webkit = {
-      url = "git+https://github.com/WebKit/WebKit?ref=refs/tags/wpewebkit-2.51.92&shallow=1";
+      url = "git+https://github.com/WebKit/WebKit?shallow=1";
       flake = false;
     };
 
