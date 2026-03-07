@@ -77,24 +77,19 @@ endif()'
           'install(TARGETS WebKit WebProcess NetworkProcess
     ARCHIVE DESTINATION "''${LIB_INSTALL_DIR}"'
 
-      # Axium: ALL linker flags are target-specific — NOT in CMAKE_EXE/MODULE_LINKER_FLAGS
-      # (global flags poison cmake try_compile test programs).
+      # Axium: --whole-archive for GStreamer is target-specific (would break cmake try_compile).
+      # Transitive -l deps and linker options go in CMAKE_EXE/MODULE_LINKER_FLAGS (harmless
+      # for try_compile — unused libs get ignored).
       gst_whole="$(echo ${gstreamer}/lib/libgst*.a) $(echo ${gstreamer}/lib/gstreamer-1.0/lib*.a)"
       cat >> Source/WebKit/CMakeLists.txt << GSTEOF
 
-# Axium: static link flags — target-specific to avoid poisoning cmake try_compile.
+# Axium: GStreamer --whole-archive — target-specific to avoid poisoning cmake try_compile.
 # WebProcess/NetworkProcess use keyword signature (PRIVATE) per WebKitMacros.cmake.
 # WPEInjectedBundle uses plain signature per PlatformWPE.cmake.
-set(AXIUM_STATIC_LINK_DEPS
-    -lffi -lgmodule-2.0 -lmount -lblkid -lselinux -lsysprof-capture-4 -lpcre2-8
-    -lnghttp2 -lpsl -lbrotlidec -lbz2 -lexpat
-    -Wl,--allow-multiple-definition -Wl,--icf=all -Wl,--error-limit=0
-    -Wl,--whole-archive $gst_whole -Wl,--no-whole-archive
-)
 foreach(axium_target WebProcess NetworkProcess)
-  target_link_libraries(\''${axium_target} PRIVATE \''${AXIUM_STATIC_LINK_DEPS})
+  target_link_libraries(\''${axium_target} PRIVATE -Wl,--whole-archive $gst_whole -Wl,--no-whole-archive)
 endforeach()
-target_link_libraries(WPEInjectedBundle \''${AXIUM_STATIC_LINK_DEPS})
+target_link_libraries(WPEInjectedBundle -Wl,--whole-archive $gst_whole -Wl,--no-whole-archive)
 GSTEOF
       echo "=== Axium: patched CMakeLists.txt tail ==="
       tail -15 Source/WebKit/CMakeLists.txt
@@ -278,8 +273,8 @@ GSTEOF
     # gobject→libffi, gio→gmodule/libmount/libblkid/libselinux/sysprof, glib→pcre2.
     # cmakeFlagsArray preserves spaces (cmakeFlags word-splits).
     preConfigure = pkgs.lib.optionalString static_lto ''
-      # Linker flags moved to target-specific target_link_libraries() in postPatch
-      # (CMAKE_EXE/MODULE_LINKER_FLAGS would poison cmake try_compile tests)
+      cmakeFlagsArray+=("-DCMAKE_EXE_LINKER_FLAGS=-lffi -lgmodule-2.0 -lmount -lblkid -lselinux -lsysprof-capture-4 -lpcre2-8 -lnghttp2 -lpsl -lbrotlidec -lbz2 -lexpat -Wl,--allow-multiple-definition -Wl,--icf=all -Wl,--error-limit=0")
+      cmakeFlagsArray+=("-DCMAKE_MODULE_LINKER_FLAGS=-lffi -lgmodule-2.0 -lmount -lblkid -lselinux -lsysprof-capture-4 -lpcre2-8 -lnghttp2 -lpsl -lbrotlidec -lbz2 -lexpat -Wl,--allow-multiple-definition -Wl,--icf=all -Wl,--error-limit=0")
       # GStreamer plugin .pc files are in lib/gstreamer-1.0/pkgconfig/, not lib/pkgconfig/
       export PKG_CONFIG_PATH="${gstreamer}/lib/gstreamer-1.0/pkgconfig''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
     '';
