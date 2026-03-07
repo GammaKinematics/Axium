@@ -83,14 +83,18 @@ endif()'
       cat >> Source/WebKit/CMakeLists.txt << GSTEOF
 
 # Axium: static link flags — target-specific to avoid poisoning cmake try_compile.
-foreach(axium_target WebProcess NetworkProcess WPEInjectedBundle)
-  target_link_libraries(\''${axium_target}
+# WebProcess/NetworkProcess use keyword signature (PRIVATE) per WebKitMacros.cmake.
+# WPEInjectedBundle uses plain signature per PlatformWPE.cmake.
+set(AXIUM_STATIC_LINK_DEPS
     -lffi -lgmodule-2.0 -lmount -lblkid -lselinux -lsysprof-capture-4 -lpcre2-8
     -lnghttp2 -lpsl -lbrotlidec -lbz2 -lexpat
     -Wl,--allow-multiple-definition -Wl,--icf=all -Wl,--error-limit=0
     -Wl,--whole-archive $gst_whole -Wl,--no-whole-archive
-  )
+)
+foreach(axium_target WebProcess NetworkProcess)
+  target_link_libraries(\''${axium_target} PRIVATE \''${AXIUM_STATIC_LINK_DEPS})
 endforeach()
+target_link_libraries(WPEInjectedBundle \''${AXIUM_STATIC_LINK_DEPS})
 GSTEOF
       echo "=== Axium: patched CMakeLists.txt tail ==="
       tail -15 Source/WebKit/CMakeLists.txt
