@@ -84,7 +84,7 @@ endif()'
 
 # Axium: static link flags — target-specific to avoid poisoning cmake try_compile.
 foreach(axium_target WebProcess NetworkProcess WPEInjectedBundle)
-  target_link_libraries(\''${axium_target} PRIVATE
+  target_link_libraries(\''${axium_target}
     -lffi -lgmodule-2.0 -lmount -lblkid -lselinux -lsysprof-capture-4 -lpcre2-8
     -lnghttp2 -lpsl -lbrotlidec -lbz2 -lexpat
     -Wl,--allow-multiple-definition -Wl,--icf=all -Wl,--error-limit=0
