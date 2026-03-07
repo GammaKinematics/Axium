@@ -280,13 +280,11 @@ GSTEOF
       export PKG_CONFIG_PATH="${gstreamer}/lib/gstreamer-1.0/pkgconfig''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
     '';
 
-    # Install internal static libraries that cmake doesn't install by default.
-    # OBJECT→STATIC change produces separate .a files; Skia/xdgmime are always STATIC.
-    # All .a files live in lib/ (CMAKE_ARCHIVE_OUTPUT_DIRECTORY = ${CMAKE_BINARY_DIR}/lib).
+    # Install all static libraries from the build dir.
+    # cmake only installs libWPEWebKit-2.0.a — the rest (WTF, JSC, WebCore, PAL,
+    # bmalloc, Skia, xdgmime) are build intermediaries that we need for linking.
     postInstall = pkgs.lib.optionalString static_lto ''
-      for lib in libWebCore.a libJavaScriptCore.a libWTF.a libPAL.a libbmalloc.a libSkia.a libxdgmime.a; do
-        cp lib/$lib $out/lib/
-      done
+      cp lib/*.a $out/lib/
     '';
 
     enableParallelBuilding = true;
