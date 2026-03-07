@@ -150,6 +150,26 @@ EOF
             libcap = prev.libcap.override { withGo = false; };
             # wayland tools not needed, pulls unnecessary deps
             libxkbcommon = prev.libxkbcommon.override { withWaylandTools = false; };
+            # blis uses a custom (non-autotools) configure:
+            # - no --build/--host (not autotools)
+            # - x86_64 must be the LAST arg (positional confname) — nix's auto-appended
+            #   --enable-static --disable-shared go after it and break parsing
+            blis = prev.blis.overrideAttrs {
+              configurePlatforms = [];
+              dontAddStaticConfigureFlags = true;
+              configureFlags = [
+                "--enable-cblas" "--blas-int-size=32" "--enable-threading=pthreads"
+                "--enable-static" "--disable-shared"
+                "x86_64"
+              ];
+              postInstall = ""; # nixpkgs creates .so symlinks — no .so in static build
+              # clang 21 dropped -mavx512pf/-mavx512er (Knights Landing / Xeon Phi — dead hardware)
+              postPatch = ''
+                patchShebangs configure build/flatten-headers.py
+                substituteInPlace config_registry \
+                  --replace-warn 'skx knl haswell' 'skx haswell'
+              '';
+            };
             # llvm-strip can't handle LLVM bitcode .o — libvpx Makefile runs $(STRIP) itself
             libvpx = prev.libvpx.overrideAttrs { env.STRIP = "true"; };
             # libepoxy: WebKit unconditionally requires it, but GL is never used at runtime.
@@ -302,7 +322,7 @@ EOF
 
       sTranslate = import ./Translate/translate.nix {
         pkgs = pkgsLto; hostPkgs = pkgs;
-        inherit translations translation-models;
+        inherit translations translation-models o3 march;
         static_lto = true;
       };
 

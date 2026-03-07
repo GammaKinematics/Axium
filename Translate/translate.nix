@@ -1,4 +1,4 @@
-{ pkgs, hostPkgs ? pkgs, translations, translation-models, static_lto ? false }:
+{ pkgs, hostPkgs ? pkgs, translations, translation-models, o3 ? false, march ? null, static_lto ? false }:
 
 let
   # Generate Odin source with model registry from Mozilla Remote Settings.
@@ -70,7 +70,7 @@ let
       "-DCOMPILE_SERVER=OFF"
       "-DUSE_FBGEMM=OFF"
       # intgemm ON (default on x86) — needed for int8 quantized models
-      "-DBUILD_ARCH=x86-64"
+      "-DBUILD_ARCH=${if march != null then march else "x86-64"}"
       "-DGIT_SUBMODULE=OFF"
     ];
 
@@ -116,6 +116,34 @@ VEOF
       # Skip translator-cli (we only need the libraries)
       substituteInPlace CMakeLists.txt \
         --replace-quiet 'add_subdirectory(src/app)' '# add_subdirectory(src/app)'
+
+      # musl strerror_r is XSI-compliant (returns int), not GNU (returns char*)
+      substituteInPlace marian-fork/src/3rd_party/zstr/strict_fstream.hpp \
+        --replace-quiet '(_POSIX_C_SOURCE >= 200112L || _XOPEN_SOURCE >= 600 || __APPLE__) && ! _GNU_SOURCE' \
+                         '1'
+
+      # musl doesn't have execinfo.h (backtrace) — provide inline stubs
+      substituteInPlace marian-fork/src/3rd_party/ExceptionWithCallStack.cpp \
+        --replace-quiet '#include <execinfo.h>' \
+'/* musl: no execinfo.h — inline stubs */
+static inline int backtrace(void**, int) { return 0; }
+static inline char** backtrace_symbols(void* const*, int) { return nullptr; }'
+      # clang -Werror rejects VLA — make size constants const
+      substituteInPlace marian-fork/src/3rd_party/ExceptionWithCallStack.cpp \
+        --replace-quiet 'unsigned int MAX_NUM_FRAMES = 1024' \
+                         'const unsigned int MAX_NUM_FRAMES = 1024' \
+        --replace-quiet 'unsigned int MAX_FUNCNAME_SIZE = 4096' \
+                         'const unsigned int MAX_FUNCNAME_SIZE = 4096'
+
+      # faiss VectorTransform.h only includes x86intrin.h on Apple — need it on Linux too
+      substituteInPlace marian-fork/src/3rd_party/faiss/VectorTransform.h \
+        --replace-quiet '#if defined(__APPLE__) && !defined(__arm64__)' \
+                         '#if (defined(__APPLE__) && !defined(__arm64__)) || defined(__x86_64__)'
+
+      # clang 21 C++23: constexpr rejects out-of-range enum cast
+      substituteInPlace marian-fork/src/3rd_party/sentencepiece/src/trainer_interface.cc \
+        --replace-quiet 'constexpr unicode_script::ScriptType kAnyType =' \
+                         'const unicode_script::ScriptType kAnyType ='
 
       # Copy our FFI wrapper into the source tree so we can compile it
       # after cmake finishes (all include paths are already configured)

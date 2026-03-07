@@ -228,6 +228,7 @@ GSTEOF
       # Requires COMPILER_IS_CLANG (provided by pkgsLto's useLLVM = true).
       # Deps use full LTO via the crossOverlay — compatible with thin here.
       "-DLTO_MODE=thin"
+      "-DUSE_THIN_ARCHIVES=OFF"
       # CMAKE_EXE_LINKER_FLAGS set via preConfigure (contains spaces)
       # Use monolithic gstreamer-full-1.0 instead of individual gstreamer libs.
       # WebKit cmake has first-class support: links only gstreamer-full-1.0
@@ -301,6 +302,7 @@ GSTEOF
       webkitEngine
       pkgs.glib
       pkgs.libsoup_3
+      pkgs.nghttp2
       pkgs.libxkbcommon
       pkgs.sqlite
     ];
