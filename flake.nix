@@ -179,6 +179,7 @@ EOF
             };
             libepoxy = (prev.libepoxy.override { x11Support = false; }).overrideAttrs (old: {
               buildInputs = (old.buildInputs or []) ++ [ final.eglStub ];
+              propagatedBuildInputs = (old.propagatedBuildInputs or []) ++ [ final.eglStub ];
               mesonFlags = builtins.map (f:
                 if f == "-Degl=no" then "-Degl=yes" else f
               ) old.mesonFlags;
