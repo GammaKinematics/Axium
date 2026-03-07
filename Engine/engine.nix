@@ -76,6 +76,25 @@ endif()'
           'install(TARGETS WebKit WebProcess NetworkProcess' \
           'install(TARGETS WebKit WebProcess NetworkProcess
     ARCHIVE DESTINATION "''${LIB_INSTALL_DIR}"'
+
+      # Axium: ALL linker flags are target-specific — NOT in CMAKE_EXE/MODULE_LINKER_FLAGS
+      # (global flags poison cmake try_compile test programs).
+      gst_whole="$(echo ${gstreamer}/lib/libgst*.a) $(echo ${gstreamer}/lib/gstreamer-1.0/lib*.a)"
+      cat >> Source/WebKit/CMakeLists.txt << GSTEOF
+
+# Axium: static link flags — target-specific to avoid poisoning cmake try_compile.
+foreach(axium_target WebProcess NetworkProcess WPEInjectedBundle)
+  target_link_libraries(\''${axium_target} PRIVATE
+    -lffi -lgmodule-2.0 -lmount -lblkid -lselinux -lsysprof-capture-4 -lpcre2-8
+    -lnghttp2 -lpsl -lbrotlidec -lbz2 -lexpat
+    -Wl,--allow-multiple-definition -Wl,--icf=all -Wl,--error-limit=0
+    -Wl,--whole-archive $gst_whole -Wl,--no-whole-archive
+  )
+endforeach()
+GSTEOF
+      echo "=== Axium: patched CMakeLists.txt tail ==="
+      tail -15 Source/WebKit/CMakeLists.txt
+      echo "=== end ==="
     '';
 
     nativeBuildInputs = with hostPkgs; [
@@ -255,8 +274,8 @@ endif()'
     # gobject→libffi, gio→gmodule/libmount/libblkid/libselinux/sysprof, glib→pcre2.
     # cmakeFlagsArray preserves spaces (cmakeFlags word-splits).
     preConfigure = pkgs.lib.optionalString static_lto ''
-      cmakeFlagsArray+=("-DCMAKE_EXE_LINKER_FLAGS=-lffi -lgmodule-2.0 -lmount -lblkid -lselinux -lsysprof-capture-4 -lpcre2-8 -lnghttp2 -lpsl -lbrotlidec -lbz2 -lexpat -Wl,--allow-multiple-definition -Wl,--icf=all -Wl,--error-limit=0 -Wl,--whole-archive $(echo ${gstreamer}/lib/libgst*.a) $(echo ${gstreamer}/lib/gstreamer-1.0/lib*.a) -Wl,--no-whole-archive")
-      cmakeFlagsArray+=("-DCMAKE_MODULE_LINKER_FLAGS=-lffi -lgmodule-2.0 -lmount -lblkid -lselinux -lsysprof-capture-4 -lpcre2-8 -lnghttp2 -lpsl -lbrotlidec -lbz2 -lexpat -Wl,--allow-multiple-definition -Wl,--icf=all -Wl,--error-limit=0 -Wl,--whole-archive $(echo ${gstreamer}/lib/libgst*.a) $(echo ${gstreamer}/lib/gstreamer-1.0/lib*.a) -Wl,--no-whole-archive")
+      # Linker flags moved to target-specific target_link_libraries() in postPatch
+      # (CMAKE_EXE/MODULE_LINKER_FLAGS would poison cmake try_compile tests)
       # GStreamer plugin .pc files are in lib/gstreamer-1.0/pkgconfig/, not lib/pkgconfig/
       export PKG_CONFIG_PATH="${gstreamer}/lib/gstreamer-1.0/pkgconfig''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
     '';
