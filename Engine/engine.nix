@@ -248,6 +248,8 @@ endif()'
     # cmakeFlagsArray preserves spaces (cmakeFlags word-splits).
     preConfigure = pkgs.lib.optionalString static_lto ''
       cmakeFlagsArray+=("-DCMAKE_EXE_LINKER_FLAGS=-lffi -lgmodule-2.0 -lmount -lblkid -lselinux -lsysprof-capture-4 -lpcre2-8")
+      # GStreamer plugin .pc files are in lib/gstreamer-1.0/pkgconfig/, not lib/pkgconfig/
+      export PKG_CONFIG_PATH="${gstreamer}/lib/gstreamer-1.0/pkgconfig''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
     '';
 
     enableParallelBuilding = true;
