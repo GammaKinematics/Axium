@@ -109,7 +109,10 @@ pkgs.stdenv.mkDerivation {
       -o axium axium.bc \
       ${engine.shim}/lib/libengine.a \
       -Wl,--whole-archive ${pages}/lib/libpages.a -Wl,--no-whole-archive \
-      -L${engine.webkit}/lib -lWPEWebKit-2.0 \
+      -Wl,--whole-archive \
+      -L${engine.webkit}/lib \
+      -lWPEWebKit-2.0 -lWebCore -lJavaScriptCore -lPAL -lWTF -lbmalloc -lSkia -lxdgmime \
+      -Wl,--no-whole-archive \
       ${displayLinkFlags} \
       ${lvgl}/lib/liblvgl.a \
       ${lvgl.passthru.linkFlags} \
@@ -138,6 +141,7 @@ pkgs.stdenv.mkDerivation {
       -L${pkgs.libvorbis}/lib -lvorbis -lvorbisenc \
       -L${pkgs.libopus}/lib -lopus \
       -L${pkgs.libvpx}/lib -lvpx \
+      -lxcb-render \
       -lm -lpthread -lc++
   '' else ''
     # ═══ Dynamic build (unchanged) ═══
