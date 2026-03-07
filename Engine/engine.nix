@@ -255,7 +255,7 @@ endif()'
     # gobject→libffi, gio→gmodule/libmount/libblkid/libselinux/sysprof, glib→pcre2.
     # cmakeFlagsArray preserves spaces (cmakeFlags word-splits).
     preConfigure = pkgs.lib.optionalString static_lto ''
-      cmakeFlagsArray+=("-DCMAKE_EXE_LINKER_FLAGS=-lffi -lgmodule-2.0 -lmount -lblkid -lselinux -lsysprof-capture-4 -lpcre2-8 -Wl,--allow-multiple-definition")
+      cmakeFlagsArray+=("-DCMAKE_EXE_LINKER_FLAGS=-lffi -lgmodule-2.0 -lmount -lblkid -lselinux -lsysprof-capture-4 -lpcre2-8 -Wl,--allow-multiple-definition -Wl,--icf=all")
       cmakeFlagsArray+=("-DCMAKE_MODULE_LINKER_FLAGS=-Wl,--allow-multiple-definition")
       # GStreamer plugin .pc files are in lib/gstreamer-1.0/pkgconfig/, not lib/pkgconfig/
       export PKG_CONFIG_PATH="${gstreamer}/lib/gstreamer-1.0/pkgconfig''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
