@@ -56,6 +56,12 @@ endif()'
       substituteInPlace Source/cmake/WebKitCommon.cmake \
         --replace-warn 'set(WebKit_LIBRARY_TYPE SHARED)' 'set(WebKit_LIBRARY_TYPE STATIC)'
 
+      # Axium: disable --gc-sections — conflicts with LTO bitcode from deps (glib).
+      # LTO does its own dead code elimination, making --gc-sections redundant.
+      # Can't use -DLD_SUPPORTS_GC_SECTIONS=OFF — cmake set() shadows cache vars.
+      substituteInPlace Source/cmake/OptionsCommon.cmake \
+        --replace-warn 'if (LD_SUPPORTS_GC_SECTIONS)' 'if (FALSE) # Axium: LTO handles DCE'
+
       # Ensure cmake installs the static archive (LIBRARY only covers shared libs).
       substituteInPlace Source/WebKit/CMakeLists.txt \
         --replace-warn \
@@ -196,10 +202,6 @@ endif()'
       # Requires COMPILER_IS_CLANG (provided by pkgsLto's useLLVM = true).
       # Deps use full LTO via the crossOverlay — compatible with thin here.
       "-DLTO_MODE=thin"
-      # --gc-sections conflicts with LTO — linker discards sections that LTO
-      # still references ("relocation refers to a discarded section" on glib).
-      # LTO does its own dead code elimination, making --gc-sections redundant.
-      "-DLD_SUPPORTS_GC_SECTIONS=OFF"
       # gobject links libffi for generic closure marshalling. In static builds,
       # cmake links glib by absolute .a path and misses transitive deps.
       "-DCMAKE_EXE_LINKER_FLAGS=-lffi"
