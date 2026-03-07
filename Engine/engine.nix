@@ -202,9 +202,10 @@ endif()'
       # Requires COMPILER_IS_CLANG (provided by pkgsLto's useLLVM = true).
       # Deps use full LTO via the crossOverlay — compatible with thin here.
       "-DLTO_MODE=thin"
-      # gobject links libffi for generic closure marshalling. In static builds,
-      # cmake links glib by absolute .a path and misses transitive deps.
-      "-DCMAKE_EXE_LINKER_FLAGS=-lffi"
+      # Static linking: cmake misses transitive deps of glib/gio.
+      # gobject→libffi, gio→gmodule/libmount/libblkid/libselinux/sysprof,
+      # glib→pcre2, libselinux→pcre2-posix/libsepol.
+      "-DCMAKE_EXE_LINKER_FLAGS=-lffi -lgmodule-2.0 -lmount -lblkid -lselinux -lsysprof-capture-4 -lpcre2-8"
       # Use monolithic gstreamer-full-1.0 instead of individual gstreamer libs.
       # WebKit cmake has first-class support: links only gstreamer-full-1.0
       # and skips all per-library pkg-config lookups.
