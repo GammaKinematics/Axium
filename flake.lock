@@ -233,16 +233,15 @@
     "webkit": {
       "flake": false,
       "locked": {
-        "lastModified": 1772186026,
-        "narHash": "sha256-3VpIeyM91DflakJqSvwTQfZ13D83BKepVTY4wT0KpAo=",
-        "ref": "refs/tags/wpewebkit-2.51.92",
-        "rev": "df949cc992246e030a22224e26ca16bc471532d9",
+        "lastModified": 1772852696,
+        "narHash": "sha256-1D2zMqEpvfMLMc54DKT/rQQQ8FboWVopQyUS8jhfbFk=",
+        "ref": "refs/heads/main",
+        "rev": "a1e43a5ceda2524bfc9bbae8b13114348527b0ce",
         "shallow": true,
         "type": "git",
         "url": "https://github.com/WebKit/WebKit"
       },
       "original": {
-        "ref": "refs/tags/wpewebkit-2.51.92",
         "shallow": true,
         "type": "git",
         "url": "https://github.com/WebKit/WebKit"

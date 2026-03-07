@@ -51,10 +51,18 @@ endif()'
 
       # Axium: static build — produce libWPEWebKit-2.0.a instead of .so.
       # No cmake flag exists for this — WebKit_LIBRARY_TYPE is hardcoded.
-      # All internal libs (bmalloc, WTF, JSC, WebCore, WPEPlatform) are already OBJECT type
-      # and get folded into this single archive.
       substituteInPlace Source/cmake/WebKitCommon.cmake \
         --replace-warn 'set(WebKit_LIBRARY_TYPE SHARED)' 'set(WebKit_LIBRARY_TYPE STATIC)'
+
+      # Axium: WPE sets internal frameworks (bmalloc, WTF, JSC, WebCore) to OBJECT type
+      # so they get folded into libWPEWebKit.so. With STATIC WebKit, the OBJECT→exe
+      # propagation through cmake aliases breaks. Change to STATIC so they produce
+      # separate .a files that link properly into WPEWebProcess/WPENetworkProcess.
+      substituteInPlace Source/cmake/OptionsWPE.cmake \
+        --replace-warn 'set(bmalloc_LIBRARY_TYPE OBJECT)' 'set(bmalloc_LIBRARY_TYPE STATIC)' \
+        --replace-warn 'set(WTF_LIBRARY_TYPE OBJECT)' 'set(WTF_LIBRARY_TYPE STATIC)' \
+        --replace-warn 'set(JavaScriptCore_LIBRARY_TYPE OBJECT)' 'set(JavaScriptCore_LIBRARY_TYPE STATIC)' \
+        --replace-warn 'set(WebCore_LIBRARY_TYPE OBJECT)' 'set(WebCore_LIBRARY_TYPE STATIC)'
 
       # Axium: disable --gc-sections — conflicts with LTO bitcode from deps (glib).
       # LTO does its own dead code elimination, making --gc-sections redundant.
