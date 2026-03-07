@@ -202,10 +202,7 @@ endif()'
       # Requires COMPILER_IS_CLANG (provided by pkgsLto's useLLVM = true).
       # Deps use full LTO via the crossOverlay — compatible with thin here.
       "-DLTO_MODE=thin"
-      # Static linking: cmake misses transitive deps of glib/gio.
-      # gobject→libffi, gio→gmodule/libmount/libblkid/libselinux/sysprof,
-      # glib→pcre2, libselinux→pcre2-posix/libsepol.
-      ''-DCMAKE_EXE_LINKER_FLAGS=-lffi -lgmodule-2.0 -lmount -lblkid -lselinux -lsysprof-capture-4 -lpcre2-8''
+      # CMAKE_EXE_LINKER_FLAGS set via preConfigure (contains spaces)
       # Use monolithic gstreamer-full-1.0 instead of individual gstreamer libs.
       # WebKit cmake has first-class support: links only gstreamer-full-1.0
       # and skips all per-library pkg-config lookups.
@@ -245,6 +242,13 @@ endif()'
       # HAVE_ALIGNED_MALLOC, HAVE_MALLOC_TRIM, HAVE_PTHREAD_MAIN_NP,
       # HAVE_MAP_ALIGNED, HAVE_SHM_ANON, HAVE_TIMINGSAFE_BCMP, HAVE_STAT_BIRTHTIME
     ];
+
+    # Static linking: cmake misses transitive deps of glib/gio.
+    # gobject→libffi, gio→gmodule/libmount/libblkid/libselinux/sysprof, glib→pcre2.
+    # cmakeFlagsArray preserves spaces (cmakeFlags word-splits).
+    preConfigure = pkgs.lib.optionalString static_lto ''
+      cmakeFlagsArray+=("-DCMAKE_EXE_LINKER_FLAGS=-lffi -lgmodule-2.0 -lmount -lblkid -lselinux -lsysprof-capture-4 -lpcre2-8")
+    '';
 
     enableParallelBuilding = true;
 
