@@ -196,6 +196,13 @@ endif()'
       # Requires COMPILER_IS_CLANG (provided by pkgsLto's useLLVM = true).
       # Deps use full LTO via the crossOverlay — compatible with thin here.
       "-DLTO_MODE=thin"
+      # --gc-sections conflicts with LTO — linker discards sections that LTO
+      # still references ("relocation refers to a discarded section" on glib).
+      # LTO does its own dead code elimination, making --gc-sections redundant.
+      "-DLD_SUPPORTS_GC_SECTIONS=OFF"
+      # gobject links libffi for generic closure marshalling. In static builds,
+      # cmake links glib by absolute .a path and misses transitive deps.
+      "-DCMAKE_EXE_LINKER_FLAGS=-lffi"
       # Use monolithic gstreamer-full-1.0 instead of individual gstreamer libs.
       # WebKit cmake has first-class support: links only gstreamer-full-1.0
       # and skips all per-library pkg-config lookups.
