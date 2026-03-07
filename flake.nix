@@ -154,8 +154,35 @@ EOF
             libvpx = prev.libvpx.overrideAttrs { env.STRIP = "true"; };
             # libepoxy: WebKit unconditionally requires it, but GL is never used at runtime.
             # Disable x11Support to drop libglvnd (can't build statically), libGL, libX11.
-            # Gives us headers + minimal .a for compile/link; LTO strips dead GL code.
-            libepoxy = prev.libepoxy.override { x11Support = false; };
+            # But WPEPlatform unconditionally needs epoxy/egl.h — re-enable EGL via a
+            # stub that provides headers + pkg-config without the real libglvnd.
+            eglStub = prev.stdenv.mkDerivation {
+              name = "egl-stub";
+              dontUnpack = true;
+              buildPhase = ''
+                mkdir -p $out/include/EGL $out/include/KHR $out/lib/pkgconfig
+                cp ${prev.buildPackages.libglvnd.dev}/include/EGL/*.h $out/include/EGL/
+                cp ${prev.buildPackages.libglvnd.dev}/include/KHR/*.h $out/include/KHR/
+                $AR rcs $out/lib/libEGL.a
+                cat > $out/lib/pkgconfig/egl.pc << EOF
+prefix=$out
+includedir=$out/include
+libdir=$out/lib
+Name: egl
+Description: EGL headers stub for static build
+Version: 1.5
+Cflags: -I$out/include
+Libs: -L$out/lib
+EOF
+              '';
+              installPhase = "true";
+            };
+            libepoxy = (prev.libepoxy.override { x11Support = false; }).overrideAttrs (old: {
+              buildInputs = (old.buildInputs or []) ++ [ final.eglStub ];
+              mesonFlags = builtins.map (f:
+                if f == "-Degl=no" then "-Degl=yes" else f
+              ) old.mesonFlags;
+            });
             # jitterentropy requires -O0 but our -O3 in NIX_CFLAGS_COMPILE overrides it.
             # Jitter RNG is supplementary — /dev/urandom is the primary entropy source.
             libgcrypt = prev.libgcrypt.overrideAttrs (old: {
