@@ -149,7 +149,7 @@ endif()'
 # Axium: GStreamer --whole-archive — target-specific to avoid poisoning cmake try_compile.
 # WebProcess/NetworkProcess use keyword signature (PRIVATE) per WebKitMacros.cmake.
 foreach(axium_target WebProcess NetworkProcess)
-  target_link_libraries(\''${axium_target} PRIVATE -Wl,--whole-archive $gst_whole -Wl,--no-whole-archive -latomic)
+  target_link_libraries(\''${axium_target} PRIVATE -Wl,--whole-archive $gst_whole -Wl,--no-whole-archive)
 endforeach()
 GSTEOF
     '';
@@ -201,6 +201,10 @@ GSTEOF
     cmakeFlags = [
       "-DPORT=WPE"
       (if static_lto then "-DCMAKE_BUILD_TYPE=MinSizeRel" else "-DCMAKE_BUILD_TYPE=Release")
+      # Inline 128-bit atomics (cmpxchg16b) — avoids __atomic_*_16 libcalls
+      # that require libatomic (not available in LLVM-only toolchain).
+      "-DCMAKE_C_FLAGS=-mcx16"
+      "-DCMAKE_CXX_FLAGS=-mcx16"
 
       # --- Platform ---
       "-DENABLE_WPE_PLATFORM=ON"
