@@ -75,27 +75,8 @@
             stdenvNoLto = prev.stdenv;
             # -flto so all .a files contain LLVM bitcode for the final LTO link.
             # Deps use default -O2 from cmake/autoconf — LTO handles cross-module optimization.
-            # Security hardening flags applied globally to all static deps:
-            #   CFI: validates indirect calls/jumps (requires LTO) — used by Chrome, Android
-            #   stack-protector-strong: canaries on functions with arrays/address-taken locals
-            #   stack-clash-protection: probes stack pages to prevent guard page bypass
-            #   cf-protection=full: Intel CET (ENDBR64) — NOP on old CPUs, enforced on Tiger Lake+
-            #   trivial-auto-var-init=zero: zero uninitialized locals — kills info-leak class
-            #   strict-flex-arrays=3: only [] is flexible array, enables accurate bounds checking
-            #   zero-call-used-regs=used-gpr: zeros registers on return, eliminates ROP gadgets
-            #   fno-delete-null-pointer-checks: prevents compiler removing null checks after deref
-            #   fno-strict-overflow: signed overflow wraps (two's complement)
             stdenv = prev.stdenvAdapters.withCFlags [
               "-flto"
-              "-fsanitize=cfi" "-fvisibility=hidden"
-              "-fstack-protector-strong"
-              "-fstack-clash-protection"
-              "-fcf-protection=full"
-              "-ftrivial-auto-var-init=zero"
-              "-fstrict-flex-arrays=3"
-              "-fzero-call-used-regs=used-gpr"
-              "-fno-delete-null-pointer-checks"
-              "-fno-strict-overflow"
             ] prev.stdenv;
           })
           # Second overlay: globally disable checks + targeted fixes.
