@@ -47,22 +47,22 @@ let
       # is already in the binary. Call it directly — required for static musl builds
       # where dlopen of external .so files doesn't work.
       substituteInPlace Source/WebKit/WebProcess/InjectedBundle/glib/InjectedBundleGlib.cpp \
-        --replace-warn \
-          'm_platformBundle = g_module_open(FileSystem::fileSystemRepresentation(m_path).data(), G_MODULE_BIND_LOCAL);
-    if (!m_platformBundle) {
-        g_warning("Error loading the injected bundle (%s): %s", m_path.utf8().data(), g_module_error());
-        return false;
-    }
+        --replace-fail \
+          '    m_platformBundle = g_module_open(FileSystem::fileSystemRepresentation(m_path).data(), G_MODULE_BIND_LOCAL);
+          if (!m_platformBundle) {
+              g_warning("Error loading the injected bundle (%s): %s", m_path.utf8().data(), g_module_error());
+              return false;
+          }
 
-    WKBundleInitializeFunctionPtr initializeFunction = 0;
-    if (!g_module_symbol(m_platformBundle, "WKBundleInitialize", reinterpret_cast<void**>(&initializeFunction)) || !initializeFunction) {
-        g_warning("Error loading WKBundleInitialize symbol from injected bundle.");
-        return false;
-    }
+          WKBundleInitializeFunctionPtr initializeFunction = 0;
+          if (!g_module_symbol(m_platformBundle, "WKBundleInitialize", reinterpret_cast<void**>(&initializeFunction)) || !initializeFunction) {
+              g_warning("Error loading WKBundleInitialize symbol from injected bundle.");
+              return false;
+          }
 
-    initializeFunction(toAPI(this), toAPI(initializationUserData.get()));' \
-          '// Axium: call extension manager directly — no dlopen.
-    WebProcessExtensionManager::singleton().initialize(this, initializationUserData.get());'
+          initializeFunction(toAPI(this), toAPI(initializationUserData.get()));' \
+          '    // Axium: call extension manager directly — no dlopen.
+          WebProcessExtensionManager::singleton().initialize(this, initializationUserData.get());'
       # Add required include for WebProcessExtensionManager
       substituteInPlace Source/WebKit/WebProcess/InjectedBundle/glib/InjectedBundleGlib.cpp \
         --replace-warn '#include "WKBundleInitialize.h"' '#include "WebProcessExtensionManager.h"'
@@ -72,26 +72,26 @@ let
       # Keeps the WebKitWebProcessExtension object (needed for user message routing)
       # but skips directory scanning and g_module_open entirely.
       substituteInPlace Source/WebKit/WebProcess/InjectedBundle/API/glib/WebProcessExtensionManager.cpp \
-        --replace-warn \
-          'if (webProcessExtensionsDirectory.isNull())
-        return;
+        --replace-fail \
+          '    if (webProcessExtensionsDirectory.isNull())
+              return;
 
-    Vector<String> modulePaths;
-    scanModules(webProcessExtensionsDirectory, modulePaths);
+          Vector<String> modulePaths;
+          scanModules(webProcessExtensionsDirectory, modulePaths);
 
-    for (size_t i = 0; i < modulePaths.size(); ++i) {
-        auto module = makeUnique<Module>(modulePaths[i]);
-        if (!module->load())
-            continue;
-        if (initializeWebProcessExtension(module.get(), userData.get()))
-            m_extensionModules.append(module.release());
-    }' \
-          '// Axium: direct call — adblock linked statically, no dlopen.
-    // Weak default so cmake-built WPEWebProcess links without adblock.o.
-    // The real definition in adblock.o overrides this in the final binary.
-    extern "C" __attribute__((weak)) void webkit_web_process_extension_initialize_with_user_data(
-        WebKitWebProcessExtension*, GVariant*) {}
-    webkit_web_process_extension_initialize_with_user_data(m_extension.get(), userData.get());'
+          for (size_t i = 0; i < modulePaths.size(); ++i) {
+              auto module = makeUnique<Module>(modulePaths[i]);
+              if (!module->load())
+                  continue;
+              if (initializeWebProcessExtension(module.get(), userData.get()))
+                  m_extensionModules.append(module.release());
+          }' \
+          '    // Axium: direct call — adblock linked statically, no dlopen.
+          // Weak default so cmake-built WPEWebProcess links without adblock.o.
+          // The real definition in adblock.o overrides this in the final binary.
+          extern "C" __attribute__((weak)) void webkit_web_process_extension_initialize_with_user_data(
+              WebKitWebProcessExtension*, GVariant*) {}
+          webkit_web_process_extension_initialize_with_user_data(m_extension.get(), userData.get());'
     '' + pkgs.lib.optionalString static_lto ''
       # FindSoup3.cmake: pkg-config version detection fails in cross builds.
       substituteInPlace Source/cmake/FindSoup3.cmake \
@@ -285,6 +285,7 @@ GSTEOF
       "-DUSE_GSTREAMER_FULL=ON"
       # bwrap can't be autodetected when cross-compiling — hardcode NixOS path.
       "-DBWRAP_EXECUTABLE=/run/current-system/sw/bin/bwrap"
+      "-DDBUS_PROXY_EXECUTABLE=/run/current-system/sw/bin/xdg-dbus-proxy"
       # musl has pthreads in libc — cmake's FindThreads test programs fail
       # due to LTO bitcode, so tell it directly.
       "-DCMAKE_HAVE_LIBC_PTHREAD=ON"
