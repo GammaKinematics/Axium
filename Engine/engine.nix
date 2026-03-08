@@ -283,6 +283,8 @@ GSTEOF
       # WebKit cmake has first-class support: links only gstreamer-full-1.0
       # and skips all per-library pkg-config lookups.
       "-DUSE_GSTREAMER_FULL=ON"
+      # bwrap can't be autodetected when cross-compiling — hardcode NixOS path.
+      "-DBWRAP_EXECUTABLE=/run/current-system/sw/bin/bwrap"
       # musl has pthreads in libc — cmake's FindThreads test programs fail
       # due to LTO bitcode, so tell it directly.
       "-DCMAKE_HAVE_LIBC_PTHREAD=ON"
