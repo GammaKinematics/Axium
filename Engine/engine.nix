@@ -71,6 +71,16 @@ let
       # adblock.o is linked into the binary, so the symbol is available at link time.
       # Keeps the WebKitWebProcessExtension object (needed for user message routing)
       # but skips directory scanning and g_module_open entirely.
+      # Weak extern decl at file scope (can't go inside a function body in C++).
+      substituteInPlace Source/WebKit/WebProcess/InjectedBundle/API/glib/WebProcessExtensionManager.cpp \
+        --replace-fail \
+          'namespace WebKit {' \
+          '// Axium: weak default so cmake-built WPEWebProcess links without adblock.o.
+      // The real definition in adblock.o overrides this in the final binary.
+      extern "C" __attribute__((weak)) void webkit_web_process_extension_initialize_with_user_data(
+          WebKitWebProcessExtension*, GVariant*) {}
+
+      namespace WebKit {'
       substituteInPlace Source/WebKit/WebProcess/InjectedBundle/API/glib/WebProcessExtensionManager.cpp \
         --replace-fail \
           '    if (webProcessExtensionsDirectory.isNull())
@@ -87,10 +97,6 @@ let
                   m_extensionModules.append(module.release());
           }' \
           '    // Axium: direct call — adblock linked statically, no dlopen.
-          // Weak default so cmake-built WPEWebProcess links without adblock.o.
-          // The real definition in adblock.o overrides this in the final binary.
-          extern "C" __attribute__((weak)) void webkit_web_process_extension_initialize_with_user_data(
-              WebKitWebProcessExtension*, GVariant*) {}
           webkit_web_process_extension_initialize_with_user_data(m_extension.get(), userData.get());'
     '' + pkgs.lib.optionalString static_lto ''
       # FindSoup3.cmake: pkg-config version detection fails in cross builds.
