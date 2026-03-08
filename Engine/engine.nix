@@ -179,7 +179,6 @@ GSTEOF
       libwebp
 
       libepoxy
-      libseccomp          # required by ENABLE_BUBBLEWRAP_SANDBOX (seccomp filter in WebProcess)
 
     ] ++ (if static_lto then [ gstreamer ] else with pkgs; [
       # GStreamer (video/audio playback) — nixpkgs packages for dynamic build
@@ -246,7 +245,7 @@ GSTEOF
       "-DENABLE_CSS_TAP_HIGHLIGHT_COLOR=OFF"
 
       # --- Security ---
-      "-DENABLE_BUBBLEWRAP_SANDBOX=ON"
+      "-DENABLE_BUBBLEWRAP_SANDBOX=OFF"
 
       # --- Build / tooling ---
       "-DENABLE_REMOTE_INSPECTOR=OFF"
@@ -283,9 +282,6 @@ GSTEOF
       # WebKit cmake has first-class support: links only gstreamer-full-1.0
       # and skips all per-library pkg-config lookups.
       "-DUSE_GSTREAMER_FULL=ON"
-      # bwrap can't be autodetected when cross-compiling — hardcode NixOS path.
-      "-DBWRAP_EXECUTABLE=/run/current-system/sw/bin/bwrap"
-      "-DDBUS_PROXY_EXECUTABLE=/run/current-system/sw/bin/xdg-dbus-proxy"
       # musl has pthreads in libc — cmake's FindThreads test programs fail
       # due to LTO bitcode, so tell it directly.
       "-DCMAKE_HAVE_LIBC_PTHREAD=ON"
