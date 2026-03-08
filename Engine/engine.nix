@@ -17,24 +17,24 @@ let
       # checks settings().acceleratedCompositingEnabled() to choose LayerTreeHost vs
       # NonCompositedFrameRenderer. Setting these to false ensures the non-GL path.
       substituteInPlace Source/WebKit/UIProcess/wpe/WebPreferencesWPE.cpp \
-        --replace-warn 'setAcceleratedCompositingEnabled(true)' 'setHardwareAccelerationEnabled(false); setAcceleratedCompositingEnabled(false)' \
-        --replace-warn 'setForceCompositingMode(true)' 'setForceCompositingMode(false)'
+        --replace-fail 'setAcceleratedCompositingEnabled(true)' 'setHardwareAccelerationEnabled(false); setAcceleratedCompositingEnabled(false)' \
+        --replace-fail 'setForceCompositingMode(true)' 'setForceCompositingMode(false)'
 
       # Axium: skip ALL EGL/PlatformDisplay init — we run CPU-only.
       # Without this, PlatformDisplaySurfaceless::create() loads Mesa (~75 MB per process).
       # We return immediately so no EGL display is ever created.
       substituteInPlace Source/WebKit/WebProcess/glib/WebProcessGLib.cpp \
-        --replace-warn 'if (PlatformDisplay::sharedDisplayIfExists())' 'if (true) // Axium: skip EGL init entirely'
+        --replace-fail 'if (PlatformDisplay::sharedDisplayIfExists())' 'if (true) // Axium: skip EGL init entirely'
 
       # Axium: neutralize unguarded DRM_FORMAT_XRGB8888 in AcceleratedBackingStore.cpp.
       # This DMA-BUF branch is dead code for us (we use SHM), but won't compile without libdrm.
       substituteInPlace Source/WebKit/UIProcess/wpe/AcceleratedBackingStore.cpp \
-        --replace-warn 'if (wpe_buffer_dma_buf_get_format(dmaBuffer) == DRM_FORMAT_XRGB8888)' 'if (false) // Axium: no LIBDRM, DMA-BUF path unused'
+        --replace-fail 'if (wpe_buffer_dma_buf_get_format(dmaBuffer) == DRM_FORMAT_XRGB8888)' 'if (false) // Axium: no LIBDRM, DMA-BUF path unused'
 
       # Axium: neutralize unguarded memoryMappedGPUBuffer() call — only exists with USE(GBM).
       # isDMABufBackedTexture is already false without GBM, so this is a no-op anyway.
       substituteInPlace Source/WebCore/platform/graphics/skia/SkiaPaintingEngine.cpp \
-        --replace-warn 'if (!texture->memoryMappedGPUBuffer())' 'if (false) // Axium: memoryMappedGPUBuffer requires USE(GBM)'
+        --replace-fail 'if (!texture->memoryMappedGPUBuffer())' 'if (false) // Axium: memoryMappedGPUBuffer requires USE(GBM)'
 
       # Axium: unconditional subprocess discovery from executable's parent directory.
       # Single-binary architecture: WPEWebProcess/WPENetworkProcess are symlinks to axium.
@@ -65,7 +65,7 @@ let
           WebProcessExtensionManager::singleton().initialize(this, initializationUserData.get());'
       # Add required include for WebProcessExtensionManager
       substituteInPlace Source/WebKit/WebProcess/InjectedBundle/glib/InjectedBundleGlib.cpp \
-        --replace-warn '#include "WKBundleInitialize.h"' '#include "WebProcessExtensionManager.h"'
+        --replace-fail '#include "WKBundleInitialize.h"' '#include "WebProcessExtensionManager.h"'
 
       # Axium: bypass extension dlopen — call adblock init directly.
       # adblock.o is linked into the binary, so the symbol is available at link time.
@@ -95,7 +95,7 @@ let
     '' + pkgs.lib.optionalString static_lto ''
       # FindSoup3.cmake: pkg-config version detection fails in cross builds.
       substituteInPlace Source/cmake/FindSoup3.cmake \
-        --replace-warn 'set(Soup3_VERSION ''${PC_Soup3_VERSION})' \
+        --replace-fail 'set(Soup3_VERSION ''${PC_Soup3_VERSION})' \
           'set(Soup3_VERSION ''${PC_Soup3_VERSION})
 if (NOT Soup3_VERSION)
     set(Soup3_VERSION "3.6.5")
@@ -104,32 +104,32 @@ endif()'
       # GStreamerChecks.cmake: checks PC_GSTREAMER_FULL_FOUND (pkg-config) which fails
       # in cross builds. Patch to check the actual library variable instead.
       substituteInPlace Source/cmake/GStreamerChecks.cmake \
-        --replace-warn 'NOT PC_GSTREAMER_FULL_FOUND' 'NOT GSTREAMER_FULL_LIBRARIES'
+        --replace-fail 'NOT PC_GSTREAMER_FULL_FOUND' 'NOT GSTREAMER_FULL_LIBRARIES'
 
       # Axium: static build — produce libWPEWebKit-2.0.a instead of .so.
       # No cmake flag exists for this — WebKit_LIBRARY_TYPE is hardcoded.
       substituteInPlace Source/cmake/WebKitCommon.cmake \
-        --replace-warn 'set(WebKit_LIBRARY_TYPE SHARED)' 'set(WebKit_LIBRARY_TYPE STATIC)'
+        --replace-fail 'set(WebKit_LIBRARY_TYPE SHARED)' 'set(WebKit_LIBRARY_TYPE STATIC)'
 
       # Axium: WPE sets internal frameworks (bmalloc, WTF, JSC, WebCore) to OBJECT type
       # so they get folded into libWPEWebKit.so. With STATIC WebKit, the OBJECT→exe
       # propagation through cmake aliases breaks. Change to STATIC so they produce
       # separate .a files that link properly into WPEWebProcess/WPENetworkProcess.
       substituteInPlace Source/cmake/OptionsWPE.cmake \
-        --replace-warn 'set(bmalloc_LIBRARY_TYPE OBJECT)' 'set(bmalloc_LIBRARY_TYPE STATIC)' \
-        --replace-warn 'set(WTF_LIBRARY_TYPE OBJECT)' 'set(WTF_LIBRARY_TYPE STATIC)' \
-        --replace-warn 'set(JavaScriptCore_LIBRARY_TYPE OBJECT)' 'set(JavaScriptCore_LIBRARY_TYPE STATIC)' \
-        --replace-warn 'set(WebCore_LIBRARY_TYPE OBJECT)' 'set(WebCore_LIBRARY_TYPE STATIC)'
+        --replace-fail 'set(bmalloc_LIBRARY_TYPE OBJECT)' 'set(bmalloc_LIBRARY_TYPE STATIC)' \
+        --replace-fail 'set(WTF_LIBRARY_TYPE OBJECT)' 'set(WTF_LIBRARY_TYPE STATIC)' \
+        --replace-fail 'set(JavaScriptCore_LIBRARY_TYPE OBJECT)' 'set(JavaScriptCore_LIBRARY_TYPE STATIC)' \
+        --replace-fail 'set(WebCore_LIBRARY_TYPE OBJECT)' 'set(WebCore_LIBRARY_TYPE STATIC)'
 
       # Axium: disable --gc-sections — conflicts with LTO bitcode from deps (glib).
       # LTO does its own dead code elimination, making --gc-sections redundant.
       # Can't use -DLD_SUPPORTS_GC_SECTIONS=OFF — cmake set() shadows cache vars.
       substituteInPlace Source/cmake/OptionsCommon.cmake \
-        --replace-warn 'if (LD_SUPPORTS_GC_SECTIONS)' 'if (FALSE) # Axium: LTO handles DCE'
+        --replace-fail 'if (LD_SUPPORTS_GC_SECTIONS)' 'if (FALSE) # Axium: LTO handles DCE'
 
       # Ensure cmake installs the static archive (LIBRARY only covers shared libs).
       substituteInPlace Source/WebKit/CMakeLists.txt \
-        --replace-warn \
+        --replace-fail \
           'install(TARGETS WebKit WebProcess NetworkProcess' \
           'install(TARGETS WebKit WebProcess NetworkProcess
     ARCHIVE DESTINATION "''${LIB_INSTALL_DIR}"'
