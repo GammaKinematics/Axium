@@ -1,5 +1,6 @@
 package axium
 
+import "base:runtime"
 import "core:c"
 import "core:fmt"
 import "core:strings"
@@ -23,6 +24,26 @@ flush_cb :: proc "c" (disp: ^lv_display_t, area: ^lv_area_t, px: [^]u8) {
 }
 
 main :: proc() {
+    // Single-binary dispatch: WPEWebProcess/WPENetworkProcess are symlinks to axium.
+    // When WebKit spawns a subprocess, argv[0] is the symlink name.
+    {
+        args := runtime.args__
+        if len(args) > 0 {
+            prog := string(args[0])
+            if idx := strings.last_index_byte(prog, '/'); idx >= 0 {
+                prog = prog[idx+1:]
+            }
+            argc := c.int(len(args))
+            argv := raw_data(args)
+            if prog == "WPEWebProcess" {
+                posix.exit(i32(axium_web_process_main(argc, argv)))
+            }
+            if prog == "WPENetworkProcess" {
+                posix.exit(i32(axium_network_process_main(argc, argv)))
+            }
+        }
+    }
+
     if !display_init("Axium", WIDTH, HEIGHT) {
         fmt.eprintln("Failed to create window")
         return
@@ -43,11 +64,10 @@ main :: proc() {
         c.int(screen_info.refresh_rate_mhz), c.double(screen_info.scale),
     )
 
-    // Configure adblock web process extension (must be before engine_create_view)
-    ext_dir := posix.getenv("AXIUM_EXT_DIR")
+    // Configure adblock (must be before engine_create_view)
     adblock_dir := posix.getenv("AXIUM_ADBLOCK_DIR")
-    if ext_dir != nil && adblock_dir != nil {
-        engine_init_adblock(ext_dir, adblock_dir)
+    if adblock_dir != nil {
+        engine_init_adblock(adblock_dir)
     }
 
     config_load()

@@ -57,11 +57,7 @@
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
 
-      # ─── Static+LTO build options ───
-      o3 = true;              # -O3 for all compilations
-      march = "x86-64-v3";    # AVX2/BMI2 — or null for baseline x86-64
-
-      # Static+LTO package set (musl + clang + full LTO + optimizations).
+      # Static+LTO package set (musl + clang + full LTO).
       # Follows the Fex pattern: useLLVM gives clang + compiler-rt + lld,
       # crossOverlay injects -flto so all compiled code is LLVM bitcode.
       # WebKit itself uses -DLTO_MODE=thin (too large for full LTO linking).
@@ -74,16 +70,33 @@
         };
         crossOverlays = [
           (final: prev: {
-            # Base opt flags without -flto (for builds that handle LTO themselves, e.g. WebKit cmake)
-            stdenvNoLto = prev.stdenvAdapters.withCFlags
-              (pkgs.lib.optionals o3 [ "-O3" ]
-                ++ pkgs.lib.optionals (march != null) [ "-march=${march}" ])
-              prev.stdenv;
-            stdenv = prev.stdenvAdapters.withCFlags
-              ([ "-flto" ]
-                ++ pkgs.lib.optionals o3 [ "-O3" ]
-                ++ pkgs.lib.optionals (march != null) [ "-march=${march}" ])
-              prev.stdenv;
+            # Plain stdenv without -flto for builds that handle LTO themselves
+            # (WebKit cmake uses -DLTO_MODE=thin).
+            stdenvNoLto = prev.stdenv;
+            # -flto so all .a files contain LLVM bitcode for the final LTO link.
+            # Deps use default -O2 from cmake/autoconf — LTO handles cross-module optimization.
+            # Security hardening flags applied globally to all static deps:
+            #   CFI: validates indirect calls/jumps (requires LTO) — used by Chrome, Android
+            #   stack-protector-strong: canaries on functions with arrays/address-taken locals
+            #   stack-clash-protection: probes stack pages to prevent guard page bypass
+            #   cf-protection=full: Intel CET (ENDBR64) — NOP on old CPUs, enforced on Tiger Lake+
+            #   trivial-auto-var-init=zero: zero uninitialized locals — kills info-leak class
+            #   strict-flex-arrays=3: only [] is flexible array, enables accurate bounds checking
+            #   zero-call-used-regs=used-gpr: zeros registers on return, eliminates ROP gadgets
+            #   fno-delete-null-pointer-checks: prevents compiler removing null checks after deref
+            #   fno-strict-overflow: signed overflow wraps (two's complement)
+            stdenv = prev.stdenvAdapters.withCFlags [
+              "-flto"
+              "-fsanitize=cfi" "-fvisibility=hidden"
+              "-fstack-protector-strong"
+              "-fstack-clash-protection"
+              "-fcf-protection=full"
+              "-ftrivial-auto-var-init=zero"
+              "-fstrict-flex-arrays=3"
+              "-fzero-call-used-regs=used-gpr"
+              "-fno-delete-null-pointer-checks"
+              "-fno-strict-overflow"
+            ] prev.stdenv;
           })
           # Second overlay: globally disable checks + targeted fixes.
           # Test binaries segfault linking bitcode .o without -flto — tests are
@@ -204,7 +217,15 @@ EOF
                 if f == "-Degl=no" then "-Degl=yes" else f
               ) old.mesonFlags;
             });
-            # jitterentropy requires -O0 but our -O3 in NIX_CFLAGS_COMPILE overrides it.
+            # gen-lock-obj.sh fails with LTO: clang -flto produces LLVM bitcode objects,
+            # objdump can't read .bss section to determine pthread_mutex_t size, producing
+            # a broken lock-obj header. Use the correct pre-generated file for musl.
+            libgpg-error = prev.libgpg-error.overrideAttrs (old: {
+              postConfigure = (old.postConfigure or "") + ''
+                cp src/syscfg/lock-obj-pub.x86_64-unknown-linux-musl.h src/lock-obj-pub.native.h
+              '';
+            });
+            # jitterentropy requires -O0 but our LTO flags in NIX_CFLAGS_COMPILE override it.
             # Jitter RNG is supplementary — /dev/urandom is the primary entropy source.
             libgcrypt = prev.libgcrypt.overrideAttrs (old: {
               configureFlags = (old.configureFlags or []) ++ [ "--disable-jent-support" ];
@@ -322,7 +343,14 @@ EOF
 
       sTranslate = import ./Translate/translate.nix {
         pkgs = pkgsLto; hostPkgs = pkgs;
-        inherit translations translation-models o3 march;
+        inherit translations translation-models;
+        static_lto = true;
+      };
+
+      sAdblock = import ./Adblock/adblock.nix {
+        pkgs = pkgsLto; hostPkgs = pkgs;
+        inherit adblock-rust uassets ublock;
+        engine = sEngine;
         static_lto = true;
       };
 
@@ -330,7 +358,7 @@ EOF
 
     in {
       packages.${system} = rec {
-        inherit (adblock) lib ext resources;
+        inherit (adblock) lib resources;
         inherit (engine) webkit shim pages;
         static-webkit = sEngine.webkit;
         static-gstreamer = sGstreamer;
@@ -349,11 +377,11 @@ EOF
           gstreamer = sGstreamer;
           inherit pages display-onix generatedBindings
                   lvglBindings fontSources iconFont edgeSources
-                  adblock themeOdin;
+                  themeOdin;
+          adblock = sAdblock;
           lvgl = sLvgl;
           keepass = sKeepass;
           translate = sTranslate;
-          inherit o3 march;
           static_lto = true;
         };
 

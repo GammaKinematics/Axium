@@ -38,7 +38,7 @@ foreign engine {
         scale: c.double,
     ) ---
     engine_set_bg            :: proc(rgb: u32, opacity: c.int) ---
-    engine_init_adblock      :: proc(ext_dir: cstring, adblock_dir: cstring) ---
+    engine_init_adblock      :: proc(adblock_dir: cstring) ---
     engine_adblock_set_disabled :: proc(disabled: bool) ---
     engine_run_javascript    :: proc(script: cstring) ---
     engine_evaluate_javascript :: proc(
@@ -64,6 +64,10 @@ foreign engine {
     engine_context_menu_activate :: proc(action: c.int) ---
 
     engine_shutdown          :: proc() ---
+
+    // Single-binary subprocess dispatch (C++ bridge)
+    axium_web_process_main     :: proc(argc: c.int, argv: [^]cstring) -> c.int ---
+    axium_network_process_main :: proc(argc: c.int, argv: [^]cstring) -> c.int ---
 }
 
 // WebKit copy → Display-Onix

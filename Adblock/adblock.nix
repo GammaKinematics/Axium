@@ -1,9 +1,9 @@
-{ pkgs, adblock-rust, engine, uassets, ublock }:
+{ pkgs, hostPkgs ? pkgs, adblock-rust, engine, uassets, ublock, static_lto ? false }:
 
 let
   webkitEngine = engine.webkit;
 
-  lib = pkgs.rustPlatform.buildRustPackage {
+  lib = hostPkgs.rustPlatform.buildRustPackage {
     pname = "axium-adblock";
     version = "0.1.0";
 
@@ -13,11 +13,11 @@ let
       lockFile = "${adblock-rust}/Cargo.lock";
     };
 
-    nativeBuildInputs = [ pkgs.pkg-config ];
+    nativeBuildInputs = [ hostPkgs.pkg-config ];
 
     buildInputs = [
-      pkgs.glib
-      pkgs.libsoup_3
+      hostPkgs.glib
+      hostPkgs.libsoup_3
     ];
 
     # Inject our FFI wrapper into adblock-rust's tree as a workspace member
@@ -33,7 +33,7 @@ let
       edition = "2021"
 
       [lib]
-      crate-type = ["cdylib"]
+      crate-type = ["staticlib"]
 
       [[bin]]
       name = "adblock-serialize"
@@ -43,7 +43,16 @@ let
       adblock = { path = "..", features = ["resource-assembler"] }
       serde_json = "1"
       EOF
+    '' + hostPkgs.lib.optionalString static_lto ''
+      # LTO build: Rust-internal LTO + abort on panic (no unwinding across FFI)
+      cat >> $sourceRoot/ffi/Cargo.toml << 'EOF'
 
+      [profile.release]
+      lto = true
+      codegen-units = 1
+      panic = "abort"
+      EOF
+    '' + ''
       # Add ffi to existing workspace members
       sed -i 's/members = \[/members = ["ffi", /' $sourceRoot/Cargo.toml
     '';
@@ -55,19 +64,23 @@ let
     doCheck = false;
 
     meta = {
-      description = "Axium Adblock - Rust FFI library";
-      license = pkgs.lib.licenses.mpl20;
+      description = "Axium Adblock - Rust FFI static library";
+      license = hostPkgs.lib.licenses.mpl20;
       platforms = [ "x86_64-linux" ];
     };
+  } // hostPkgs.lib.optionalAttrs static_lto {
+    CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
   };
 
+  # Compile adblock.c to .o — linked into the browser binary directly
+  # (no dlopen, no .so extension; WebKit patched for direct init call)
   ext = pkgs.stdenv.mkDerivation {
     pname = "axium-adblock-ext";
     version = "0.1.0";
 
     src = ./.;
 
-    nativeBuildInputs = [ pkgs.pkg-config ];
+    nativeBuildInputs = [ hostPkgs.pkg-config ];
 
     buildInputs = [
       webkitEngine
@@ -76,19 +89,17 @@ let
     ];
 
     buildPhase = ''
-      cc -shared -fPIC -o libaxium_adblock_ext.so adblock.c \
-        $(pkg-config --cflags wpe-web-process-extension-2.0) \
-        $(pkg-config --libs glib-2.0) \
-        -L${lib}/lib -laxium_adblock -Wl,-rpath,${lib}/lib
+      $CC -c -o adblock.o adblock.c \
+        $(pkg-config --cflags wpe-web-process-extension-2.0 glib-2.0)
     '';
 
     installPhase = ''
       mkdir -p $out/lib
-      cp libaxium_adblock_ext.so $out/lib/
+      cp adblock.o $out/lib/
     '';
 
     meta = {
-      description = "Axium Adblock - WebKit web process extension";
+      description = "Axium Adblock - compiled extension object";
       platforms = [ "x86_64-linux" ];
     };
   };
@@ -151,4 +162,12 @@ let
 in {
   inherit lib ext resources;
   sources = [];
+
+  linkFlags = builtins.concatStringsSep " " [
+    "${ext}/lib/adblock.o"
+    "-L${lib}/lib"
+    "-laxium_adblock"
+  ];
+
+  buildInputs = [];
 }

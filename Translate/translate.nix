@@ -1,4 +1,4 @@
-{ pkgs, hostPkgs ? pkgs, translations, translation-models, o3 ? false, march ? null, static_lto ? false }:
+{ pkgs, hostPkgs ? pkgs, translations, translation-models, static_lto ? false }:
 
 let
   # Generate Odin source with model registry from Mozilla Remote Settings.
@@ -70,7 +70,7 @@ let
       "-DCOMPILE_SERVER=OFF"
       "-DUSE_FBGEMM=OFF"
       # intgemm ON (default on x86) — needed for int8 quantized models
-      "-DBUILD_ARCH=${if march != null then march else "x86-64"}"
+      "-DBUILD_ARCH=x86-64"
       "-DGIT_SUBMODULE=OFF"
     ];
 

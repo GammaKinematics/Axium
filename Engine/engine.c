@@ -823,24 +823,19 @@ static void on_initialize_web_process_extensions(WebKitWebContext* context,
                                                   gpointer data)
 {
     (void)data;
-    const char* ext_dir = (const char*)g_object_get_data(G_OBJECT(context), "axium-ext-dir");
-    if (ext_dir)
-        webkit_web_context_set_web_process_extensions_directory(context, ext_dir);
     if (g_adblock_dir)
         webkit_web_context_set_web_process_extensions_initialization_user_data(
             context, g_variant_new_string(g_adblock_dir));
 }
 
-void engine_init_adblock(const char* ext_dir, const char* adblock_dir)
+void engine_init_adblock(const char* adblock_dir)
 {
-    if (!ext_dir || !adblock_dir)
+    if (!adblock_dir)
         return;
 
     g_adblock_dir = g_strdup(adblock_dir);
 
     WebKitWebContext* ctx = webkit_web_context_get_default();
-    g_object_set_data_full(G_OBJECT(ctx), "axium-ext-dir",
-                           g_strdup(ext_dir), g_free);
     g_signal_connect(ctx, "initialize-web-process-extensions",
                      G_CALLBACK(on_initialize_web_process_extensions), NULL);
 }

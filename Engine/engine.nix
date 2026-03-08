@@ -35,6 +35,63 @@ let
       # isDMABufBackedTexture is already false without GBM, so this is a no-op anyway.
       substituteInPlace Source/WebCore/platform/graphics/skia/SkiaPaintingEngine.cpp \
         --replace-warn 'if (!texture->memoryMappedGPUBuffer())' 'if (false) // Axium: memoryMappedGPUBuffer requires USE(GBM)'
+
+      # Axium: unconditional subprocess discovery from executable's parent directory.
+      # Single-binary architecture: WPEWebProcess/WPENetworkProcess are symlinks to axium.
+      sed -i '/#if ENABLE(DEVELOPER_MODE)/d' Source/WebKit/Shared/glib/ProcessExecutablePathGLib.cpp
+      sed -i '0,/^#endif$/{/^#endif$/d}' Source/WebKit/Shared/glib/ProcessExecutablePathGLib.cpp
+      sed -i '0,/^#endif$/{/^#endif$/d}' Source/WebKit/Shared/glib/ProcessExecutablePathGLib.cpp
+
+      # Axium: bypass InjectedBundle's g_module_open of libWPEInjectedBundle.so.
+      # The .so is just a trampoline to WebProcessExtensionManager::initialize() which
+      # is already in the binary. Call it directly — required for static musl builds
+      # where dlopen of external .so files doesn't work.
+      substituteInPlace Source/WebKit/WebProcess/InjectedBundle/glib/InjectedBundleGlib.cpp \
+        --replace-warn \
+          'm_platformBundle = g_module_open(FileSystem::fileSystemRepresentation(m_path).data(), G_MODULE_BIND_LOCAL);
+    if (!m_platformBundle) {
+        g_warning("Error loading the injected bundle (%s): %s", m_path.utf8().data(), g_module_error());
+        return false;
+    }
+
+    WKBundleInitializeFunctionPtr initializeFunction = 0;
+    if (!g_module_symbol(m_platformBundle, "WKBundleInitialize", reinterpret_cast<void**>(&initializeFunction)) || !initializeFunction) {
+        g_warning("Error loading WKBundleInitialize symbol from injected bundle.");
+        return false;
+    }
+
+    initializeFunction(toAPI(this), toAPI(initializationUserData.get()));' \
+          '// Axium: call extension manager directly — no dlopen.
+    WebProcessExtensionManager::singleton().initialize(this, initializationUserData.get());'
+      # Add required include for WebProcessExtensionManager
+      substituteInPlace Source/WebKit/WebProcess/InjectedBundle/glib/InjectedBundleGlib.cpp \
+        --replace-warn '#include "WKBundleInitialize.h"' '#include "WebProcessExtensionManager.h"'
+
+      # Axium: bypass extension dlopen — call adblock init directly.
+      # adblock.o is linked into the binary, so the symbol is available at link time.
+      # Keeps the WebKitWebProcessExtension object (needed for user message routing)
+      # but skips directory scanning and g_module_open entirely.
+      substituteInPlace Source/WebKit/WebProcess/InjectedBundle/API/glib/WebProcessExtensionManager.cpp \
+        --replace-warn \
+          'if (webProcessExtensionsDirectory.isNull())
+        return;
+
+    Vector<String> modulePaths;
+    scanModules(webProcessExtensionsDirectory, modulePaths);
+
+    for (size_t i = 0; i < modulePaths.size(); ++i) {
+        auto module = makeUnique<Module>(modulePaths[i]);
+        if (!module->load())
+            continue;
+        if (initializeWebProcessExtension(module.get(), userData.get()))
+            m_extensionModules.append(module.release());
+    }' \
+          '// Axium: direct call — adblock linked statically, no dlopen.
+    // Weak default so cmake-built WPEWebProcess links without adblock.o.
+    // The real definition in adblock.o overrides this in the final binary.
+    extern "C" __attribute__((weak)) void webkit_web_process_extension_initialize_with_user_data(
+        WebKitWebProcessExtension*, GVariant*) {}
+    webkit_web_process_extension_initialize_with_user_data(m_extension.get(), userData.get());'
     '' + pkgs.lib.optionalString static_lto ''
       # FindSoup3.cmake: pkg-config version detection fails in cross builds.
       substituteInPlace Source/cmake/FindSoup3.cmake \
@@ -85,15 +142,10 @@ endif()'
 
 # Axium: GStreamer --whole-archive — target-specific to avoid poisoning cmake try_compile.
 # WebProcess/NetworkProcess use keyword signature (PRIVATE) per WebKitMacros.cmake.
-# WPEInjectedBundle uses plain signature per PlatformWPE.cmake.
 foreach(axium_target WebProcess NetworkProcess)
   target_link_libraries(\''${axium_target} PRIVATE -Wl,--whole-archive $gst_whole -Wl,--no-whole-archive)
 endforeach()
-target_link_libraries(WPEInjectedBundle -Wl,--whole-archive $gst_whole -Wl,--no-whole-archive)
 GSTEOF
-      echo "=== Axium: patched CMakeLists.txt tail ==="
-      tail -15 Source/WebKit/CMakeLists.txt
-      echo "=== end ==="
     '';
 
     nativeBuildInputs = with hostPkgs; [
@@ -127,6 +179,7 @@ GSTEOF
       libwebp
 
       libepoxy
+      libseccomp          # required by ENABLE_BUBBLEWRAP_SANDBOX (seccomp filter in WebProcess)
 
     ] ++ (if static_lto then [ gstreamer ] else with pkgs; [
       # GStreamer (video/audio playback) — nixpkgs packages for dynamic build
@@ -142,31 +195,32 @@ GSTEOF
 
     cmakeFlags = [
       "-DPORT=WPE"
-      "-DCMAKE_BUILD_TYPE=Release"
+      (if static_lto then "-DCMAKE_BUILD_TYPE=MinSizeRel" else "-DCMAKE_BUILD_TYPE=Release")
 
-      # WPE2 platform base classes only — no built-in backends.
-      # Axium provides its own WPEDisplay/View/Toplevel via engine.c
-      # and renders to a framebuffer through Display-Onix (X11).
+      # --- Platform ---
       "-DENABLE_WPE_PLATFORM=ON"
       "-DENABLE_WPE_PLATFORM_DRM=OFF"
       "-DENABLE_WPE_PLATFORM_HEADLESS=OFF"
       "-DENABLE_WPE_PLATFORM_WAYLAND=OFF"
       "-DENABLE_WPE_LEGACY_API=OFF"
 
-      # No GPU process — we force the SHM pixel path
+      # --- Graphics / GPU ---
       "-DENABLE_GPU_PROCESS=OFF"
+      "-DENABLE_WEBGL=OFF"
+      "-DENABLE_OFFSCREEN_CANVAS=OFF"
+      "-DENABLE_OFFSCREEN_CANVAS_IN_WORKERS=OFF"
+      "-DUSE_GBM=OFF"
+      "-DUSE_LIBDRM=OFF"
+      "-DUSE_GSTREAMER_GL=OFF"
 
-      # Media — keep video/audio (required by Quirks.cpp, useful anyway)
+      # --- Media ---
       "-DENABLE_MEDIA_STREAM=OFF"
       "-DENABLE_MEDIA_RECORDER=OFF"
       "-DENABLE_ENCRYPTED_MEDIA=OFF"
       "-DENABLE_WEB_CODECS=OFF"
-
-      # Graphics features
-      "-DENABLE_WEBGL=OFF"
-
-      # Web APIs not needed
       "-DENABLE_WEB_AUDIO=OFF"
+
+      # --- Web APIs ---
       "-DENABLE_GAMEPAD=OFF"
       "-DENABLE_WEB_RTC=OFF"
       "-DENABLE_NOTIFICATIONS=OFF"
@@ -174,30 +228,28 @@ GSTEOF
       "-DENABLE_WEBXR=OFF"
       "-DENABLE_TOUCH_EVENTS=OFF"
       "-DENABLE_GEOLOCATION=OFF"
-      # "-DENABLE_FULLSCREEN_API=OFF"
-      "-DENABLE_REMOTE_INSPECTOR=OFF"
       "-DENABLE_CONTENT_EXTENSIONS=OFF"
-      # CONTEXT_MENUS must stay ON — MediaControlsHost.cpp has unguarded
-      # return type mismatch when disabled.
-      # "-DENABLE_CONTEXT_MENUS=OFF"
-      "-DENABLE_DRAG_SUPPORT=OFF"
       "-DENABLE_MATHML=OFF"
-
-      # UI/rendering features
-      # ASYNC_SCROLLING must stay ON — ScrollingStateScrollingNodeCoordinated.cpp
-      # requires it when USE(COORDINATED_GRAPHICS) is enabled. Dead code at runtime
-      # with NonCompositedFrameRenderer.
-      # "-DENABLE_ASYNC_SCROLLING=OFF"
-      "-DENABLE_AUTOCAPITALIZE=OFF"
-      # "-DENABLE_VARIATION_FONTS=OFF"
-      # "-DENABLE_DARK_MODE_CSS=OFF"
-      "-DENABLE_OFFSCREEN_CANVAS=OFF"
-      "-DENABLE_OFFSCREEN_CANVAS_IN_WORKERS=OFF"
       "-DENABLE_MHTML=OFF"
       "-DENABLE_PDFJS=OFF"
       "-DENABLE_XSLT=OFF"
 
-      # Build/test/tooling
+      # --- JSC ---
+      "-DENABLE_WEBASSEMBLY=OFF"
+      "-DENABLE_FTL_JIT=OFF"
+      "-DENABLE_SAMPLING_PROFILER=OFF"
+      "-DENABLE_JAVASCRIPT_SHELL=OFF"
+
+      # --- UI ---
+      "-DENABLE_AUTOCAPITALIZE=OFF"
+      "-DENABLE_MOUSE_CURSOR_SCALE=OFF"
+      "-DENABLE_CSS_TAP_HIGHLIGHT_COLOR=OFF"
+
+      # --- Security ---
+      "-DENABLE_BUBBLEWRAP_SANDBOX=ON"
+
+      # --- Build / tooling ---
+      "-DENABLE_REMOTE_INSPECTOR=OFF"
       "-DENABLE_DOCUMENTATION=OFF"
       "-DENABLE_INTROSPECTION=OFF"
       "-DENABLE_WPE_QT_API=OFF"
@@ -206,8 +258,9 @@ GSTEOF
       "-DENABLE_LAYOUT_TESTS=OFF"
       "-DENABLE_WEBDRIVER=OFF"
       "-DENABLE_JOURNALD_LOG=OFF"
+      "-DENABLE_PERIODIC_MEMORY_MONITOR=OFF"
 
-      # USE_ flags
+      # --- USE_ flags ---
       "-DUSE_SYSPROF_CAPTURE=OFF"
       "-DUSE_AVIF=OFF"
       "-DUSE_JPEGXL=OFF"
@@ -215,13 +268,9 @@ GSTEOF
       "-DUSE_WOFF2=OFF"
       "-DUSE_LIBHYPHEN=OFF"
       "-DUSE_ATK=OFF"
-      "-DUSE_GBM=OFF"              # No GBM — compositing disabled, AcceleratedSurface GL path dead
-      "-DUSE_LIBDRM=OFF"           # No DRM — only needed with GBM
-      "-DUSE_GSTREAMER_GL=OFF"     # No GL in GStreamer video pipeline
-      "-DUSE_LIBBACKTRACE=OFF"     # Debug-only backtraces
+      "-DUSE_LIBBACKTRACE=OFF"
       "-DUSE_SKIA_OPENTYPE_SVG=OFF"
 
-      "-DENABLE_BUBBLEWRAP_SANDBOX=OFF"
     ] ++ pkgs.lib.optionals static_lto [
       # Thin LTO for WebKit only (too large for full LTO linking).
       # WebKit's cmake adds -flto=thin to C/CXX/linker flags and enables LLD.
@@ -318,7 +367,8 @@ GSTEOF
       $CC -c engine.c -o engine.o \
         -I${pages}/include \
         $(pkg-config --cflags wpe-webkit-2.0 wpe-platform-2.0 glib-2.0 gobject-2.0 sqlite3)
-      $AR rcs libengine.a engine.o
+      $CXX -c subprocess.cpp -o subprocess.o
+      $AR rcs libengine.a engine.o subprocess.o
     '';
 
     installPhase = ''
