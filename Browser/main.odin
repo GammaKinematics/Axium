@@ -44,7 +44,7 @@ main :: proc() {
         }
     }
 
-    if !display_init(.X11, "Axium", WIDTH, HEIGHT) {
+    if display_init(.X11, "Axium", WIDTH, HEIGHT) == .Error {
         fmt.eprintln("Failed to create window")
         return
     }

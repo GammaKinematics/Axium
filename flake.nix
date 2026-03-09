@@ -283,6 +283,8 @@ static inline long epoxy_static_stub_(void) { return 0; }'
               '';
               meta = old.meta // { badPlatforms = []; };
             });
+            # mpg123: only need decoder lib, not audio output backends
+            mpg123 = prev.mpg123.override { withPulse = false; withJack = false; withAlsa = false; withConplay = false; libOnly = true; };
             # gnutls: doc/errcodes is a build-time binary that segfaults under LTO
             # (LLVM bitcode can't run natively). Disable doc generation.
             gnutls = prev.gnutls.overrideAttrs (old: {
