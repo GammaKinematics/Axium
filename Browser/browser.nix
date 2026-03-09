@@ -6,9 +6,11 @@
 }:
 
 let
-  displaySources = display-onix.lib.sources { backend = "x11"; package = "axium"; };
-  displayDeps = display-onix.lib.deps "x11" pkgs;
-  displayLinkFlags = display-onix.lib.linkFlags "x11" pkgs;
+  displayConfig = { x11 = true; };
+  displaySources = display-onix.lib.sources ({ package = "axium"; } // displayConfig);
+  displayConfigFlags = display-onix.lib.configFlags displayConfig;
+  displayDeps = display-onix.lib.deps displayConfig pkgs;
+  displayLinkFlags = display-onix.lib.linkFlags displayConfig pkgs;
 
   musl = pkgs.stdenv.cc.libc;
 in
@@ -39,6 +41,7 @@ pkgs.stdenv.mkDerivation {
   ] ++ displayDeps ++ lvgl.passthru.deps ++ keepass.buildInputs ++ translate.buildInputs
     ++ pkgs.lib.optionals static_lto [
       gstreamer pkgs.libogg pkgs.libvorbis pkgs.libopus pkgs.libvpx
+      pkgs.openh264 pkgs.fdk_aac pkgs.dav1d pkgs.flac pkgs.mpg123
       pkgs.libffi pkgs.pcre2 pkgs.nghttp2 pkgs.libpsl pkgs.brotli pkgs.bzip2
       pkgs.graphite2 pkgs.libidn2 pkgs.libunistring pkgs.util-linuxMinimal
       pkgs.libselinux pkgs.libsepol
@@ -89,7 +92,7 @@ pkgs.stdenv.mkDerivation {
   '' + (if static_lto then ''
     # ═══ Static+LTO build ═══
     # Step 1: Odin emits LLVM IR
-    odin build . -build-mode:llvm-ir -out:axium -o:speed
+    odin build . -build-mode:llvm-ir -out:axium -o:speed ${builtins.concatStringsSep " " displayConfigFlags}
 
     # Step 2: Convert LLVM 18 IR text to bitcode (backward-compatible with newer LLVM)
     ${hostPkgs.llvmPackages_18.llvm}/bin/llvm-as axium.ll -o axium.bc
@@ -139,6 +142,11 @@ pkgs.stdenv.mkDerivation {
       -L${pkgs.libvorbis}/lib -lvorbis -lvorbisenc \
       -L${pkgs.libopus}/lib -lopus \
       -L${pkgs.libvpx}/lib -lvpx \
+      -L${pkgs.openh264}/lib -lopenh264 \
+      -L${pkgs.fdk_aac}/lib -lfdk-aac \
+      -L${pkgs.dav1d}/lib -ldav1d \
+      -L${pkgs.flac}/lib -lFLAC \
+      -L${pkgs.mpg123}/lib -lmpg123 \
       -L${pkgs.libffi}/lib -lffi \
       -L${pkgs.pcre2}/lib -lpcre2-8 \
       -L${pkgs.nghttp2.lib}/lib -lnghttp2 \
@@ -164,7 +172,7 @@ pkgs.stdenv.mkDerivation {
       -Wl,--whole-archive $(clang --target=x86_64-unknown-linux-musl --rtlib=compiler-rt --print-libgcc-file-name) -Wl,--no-whole-archive
   '' else ''
     # ═══ Dynamic build (unchanged) ═══
-    odin build . -out:axium -debug \
+    odin build . -out:axium -debug ${builtins.concatStringsSep " " displayConfigFlags} \
       -extra-linker-flags:"-L${engine.shim}/lib -L${pages}/lib \
         ${displayLinkFlags} \
         ${lvgl}/lib/liblvgl.a \

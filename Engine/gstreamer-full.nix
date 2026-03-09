@@ -36,6 +36,11 @@ pkgs.stdenv.mkDerivation {
     libvorbis
     libopus
     libvpx
+    openh264
+    fdk_aac
+    dav1d
+    flac
+    mpg123
     zlib
   ];
 
@@ -45,6 +50,7 @@ pkgs.stdenv.mkDerivation {
     "-Dgst-full-target-type=static_library"
     "-Dgst-full=enabled"
     "-Dauto_features=disabled"
+    "-Dregistry=false"        # static build: no plugin scanning/dlopen
 
     # ── Subprojects ──
     "-Dbase=enabled"
@@ -109,6 +115,8 @@ pkgs.stdenv.mkDerivation {
     "-Dgst-plugins-good:vpx=enabled"
     "-Dgst-plugins-good:audioparsers=enabled"
     "-Dgst-plugins-good:id3demux=enabled"
+    "-Dgst-plugins-good:scaletempo=enabled"
+    "-Dgst-plugins-good:wavparse=enabled"
     # Disable the heavy hitters
     "-Dgst-plugins-good:pulse=disabled"
     "-Dgst-plugins-good:jack=disabled"
@@ -117,10 +125,10 @@ pkgs.stdenv.mkDerivation {
     "-Dgst-plugins-good:cairo=disabled"
     "-Dgst-plugins-good:dv=disabled"
     "-Dgst-plugins-good:dv1394=disabled"
-    "-Dgst-plugins-good:flac=disabled"
+    "-Dgst-plugins-good:flac=enabled"
     "-Dgst-plugins-good:gdk-pixbuf=disabled"
     "-Dgst-plugins-good:lame=disabled"
-    "-Dgst-plugins-good:mpg123=disabled"
+    "-Dgst-plugins-good:mpg123=enabled"
     "-Dgst-plugins-good:shout2=disabled"
     "-Dgst-plugins-good:speex=disabled"
     "-Dgst-plugins-good:taglib=disabled"
@@ -131,9 +139,14 @@ pkgs.stdenv.mkDerivation {
     "-Dgst-plugins-good:oss=disabled"
     "-Dgst-plugins-good:oss4=disabled"
 
-    # ── gst-plugins-bad: parsers + closedcaption ──
+    # ── gst-plugins-bad: parsers, codecs + closedcaption ──
     "-Dgst-plugins-bad:videoparsers=enabled"
     "-Dgst-plugins-bad:closedcaption=enabled"
+    "-Dgst-plugins-bad:openh264=enabled"
+    "-Dgst-plugins-bad:fdkaac=enabled"
+    "-Dgst-plugins-bad:dav1d=enabled"
+    "-Dgst-plugins-bad:mpegtsdemux=enabled"
+    "-Dgst-plugins-bad:subenc=enabled"
     # Disable GL and everything else
     "-Dgst-plugins-bad:gl=disabled"
     "-Dgst-plugins-bad:webrtc=disabled"

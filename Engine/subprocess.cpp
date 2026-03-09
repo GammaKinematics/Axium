@@ -14,7 +14,11 @@ extern "C" int axium_web_process_main(int argc, char** argv) {
     return WebKit::WebProcessMain(argc, argv);
 }
 
+// Static TLS backend registration — needed in every process that does networking.
+extern "C" void g_tls_backend_gnutls_register(void *module);
+
 extern "C" int axium_network_process_main(int argc, char** argv) {
     fprintf(stderr, "[axium] NetworkProcess starting (pid %d)\n", getpid());
+    g_tls_backend_gnutls_register(nullptr);
     return WebKit::NetworkProcessMain(argc, argv);
 }

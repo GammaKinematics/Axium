@@ -257,11 +257,17 @@ static inline long epoxy_static_stub_(void) { return 0; }'
             # On static musl, dlopen is stubbed → no TLS backend registers →
             # g_tls_backend_get_default() returns GDummyTlsBackend → HTTPS dead.
             # Fix: build as static lib, link into binary, register directly.
-            glib-networking = prev.glib-networking.overrideAttrs (old: {
+            glib-networking = (prev.glib-networking.override {
+              libproxy = null;
+              gsettings-desktop-schemas = prev.gsettings-desktop-schemas;
+            }).overrideAttrs (old: {
+              buildInputs = builtins.filter (x: x != null) (old.buildInputs or []);
               mesonFlags = (old.mesonFlags or []) ++ [
                 "-Ddefault_library=static"
                 "-Dinstalled_tests=false"
-                "-Dtests=false"
+                "-Dlibproxy=disabled"
+                "-Dgnome_proxy=disabled"
+                "-Dopenssl=disabled"
               ];
               # G_DEFINE_DYNAMIC_TYPE needs a GTypeModule — NULL won't work.
               # Switch to static type registration so get_type() works without a module.
@@ -269,9 +275,24 @@ static inline long epoxy_static_stub_(void) { return 0; }'
                 substituteInPlace tls/gnutls/gtlsbackend-gnutls.c \
                   --replace-fail 'G_DEFINE_DYNAMIC_TYPE_EXTENDED' 'G_DEFINE_FINAL_TYPE_WITH_CODE' \
                   --replace-fail 'G_TYPE_OBJECT, G_TYPE_FLAG_FINAL,' 'G_TYPE_OBJECT,' \
-                  --replace-fail 'G_IMPLEMENT_INTERFACE_DYNAMIC' 'G_IMPLEMENT_INTERFACE'
+                  --replace-fail 'G_IMPLEMENT_INTERFACE_DYNAMIC' 'G_IMPLEMENT_INTERFACE' \
+                  --replace-fail 'g_tls_backend_gnutls_register_type (G_TYPE_MODULE (module))' 'g_tls_backend_gnutls_get_type ()'
+              '';
+              preFixup = (old.preFixup or "") + ''
+                mkdir -p $out/libexec $installedTests/libexec
               '';
               meta = old.meta // { badPlatforms = []; };
+            });
+            # gnutls: doc/errcodes is a build-time binary that segfaults under LTO
+            # (LLVM bitcode can't run natively). Disable doc generation.
+            gnutls = prev.gnutls.overrideAttrs (old: {
+              configureFlags = (old.configureFlags or []) ++ [
+                "--disable-doc"
+                "--with-default-trust-store-file=/etc/ssl/certs/ca-certificates.crt"
+              ];
+              postInstall = (old.postInstall or "") + ''
+                mkdir -p $devdoc $man
+              '';
             });
             # gen-lock-obj.sh fails with LTO: clang -flto produces LLVM bitcode objects,
             # objdump can't read .bss section to determine pthread_mutex_t size, producing

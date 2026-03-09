@@ -44,7 +44,7 @@ main :: proc() {
         }
     }
 
-    if !display_init("Axium", WIDTH, HEIGHT) {
+    if !display_init(.X11, "Axium", WIDTH, HEIGHT) {
         fmt.eprintln("Failed to create window")
         return
     }
@@ -220,7 +220,7 @@ main :: proc() {
         // Update cursor if WebKit changed it
         cursor := engine_get_cursor()
         if cursor >= 0 {
-            display_cursor_set(Cursor(cursor))
+            display_set_cursor(Cursor(cursor))
         }
 
         display_present()
