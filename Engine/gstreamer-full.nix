@@ -50,7 +50,7 @@ pkgs.stdenv.mkDerivation {
     "-Dgst-full-target-type=static_library"
     "-Dgst-full=enabled"
     "-Dauto_features=disabled"
-    "-Dregistry=false"        # static build: no plugin scanning/dlopen
+    "-Dgstreamer:registry=false"  # static build: no plugin scanning/dlopen
 
     # ── Subprojects ──
     "-Dbase=enabled"
