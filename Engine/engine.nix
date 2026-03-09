@@ -186,7 +186,7 @@ GSTEOF
 
       libepoxy
 
-    ] ++ (if static_lto then [ gstreamer ] else with pkgs; [
+    ] ++ (if static_lto then [ gstreamer pkgs.openh264 pkgs.fdk_aac pkgs.flac pkgs.mpg123 ] else with pkgs; [
       # GStreamer (video/audio playback) — nixpkgs packages for dynamic build
       gst_all_1.gstreamer
       gst_all_1.gst-plugins-base
@@ -332,8 +332,8 @@ GSTEOF
     # gobject→libffi, gio→gmodule/libmount/libblkid/libselinux/sysprof, glib→pcre2.
     # cmakeFlagsArray preserves spaces (cmakeFlags word-splits).
     preConfigure = pkgs.lib.optionalString static_lto ''
-      cmakeFlagsArray+=("-DCMAKE_EXE_LINKER_FLAGS=-lffi -lgmodule-2.0 -lmount -lblkid -lselinux -lsysprof-capture-4 -lpcre2-8 -lnghttp2 -lpsl -lbrotlidec -lbrotlicommon -lbz2 -lexpat -lgraphite2 -lidn2 -lunistring -logg -lopus -lvorbis -lvorbisenc -lvpx -lsharpyuv -Wl,--allow-multiple-definition -Wl,--icf=all -Wl,--error-limit=0")
-      cmakeFlagsArray+=("-DCMAKE_MODULE_LINKER_FLAGS=-lffi -lgmodule-2.0 -lmount -lblkid -lselinux -lsysprof-capture-4 -lpcre2-8 -lnghttp2 -lpsl -lbrotlidec -lbrotlicommon -lbz2 -lexpat -lgraphite2 -lidn2 -lunistring -logg -lopus -lvorbis -lvorbisenc -lvpx -lsharpyuv -Wl,--allow-multiple-definition -Wl,--icf=all -Wl,--error-limit=0")
+      cmakeFlagsArray+=("-DCMAKE_EXE_LINKER_FLAGS=-lffi -lgmodule-2.0 -lmount -lblkid -lselinux -lsysprof-capture-4 -lpcre2-8 -lnghttp2 -lpsl -lbrotlidec -lbrotlicommon -lbz2 -lexpat -lgraphite2 -lidn2 -lunistring -logg -lopus -lvorbis -lvorbisenc -lvpx -lopenh264 -lfdk-aac -lFLAC -lmpg123 -lsharpyuv -Wl,--allow-multiple-definition -Wl,--icf=all -Wl,--error-limit=0")
+      cmakeFlagsArray+=("-DCMAKE_MODULE_LINKER_FLAGS=-lffi -lgmodule-2.0 -lmount -lblkid -lselinux -lsysprof-capture-4 -lpcre2-8 -lnghttp2 -lpsl -lbrotlidec -lbrotlicommon -lbz2 -lexpat -lgraphite2 -lidn2 -lunistring -logg -lopus -lvorbis -lvorbisenc -lvpx -lopenh264 -lfdk-aac -lFLAC -lmpg123 -lsharpyuv -Wl,--allow-multiple-definition -Wl,--icf=all -Wl,--error-limit=0")
       # GStreamer plugin .pc files are in lib/gstreamer-1.0/pkgconfig/, not lib/pkgconfig/
       export PKG_CONFIG_PATH="${gstreamer}/lib/gstreamer-1.0/pkgconfig''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
     '';
