@@ -198,24 +198,58 @@ EOF
                 if f == "-Degl=no" then "-Degl=yes" else f
               ) old.mesonFlags;
               postPatch = (old.postPatch or "") + ''
-                # Axium: static musl has no dlopen — remove all abort() so
-                # failures return gracefully, and install a resolver stub
-                # so generated dispatch returns a no-op instead of aborting.
-                # Remove all abort() calls — dlopen/dlsym failures return gracefully.
+                # Axium: static musl has no dlopen/dlsym. Patch epoxy so
+                # unresolved GL/EGL functions return a stub (returns 0)
+                # instead of aborting.
+
+                # dispatch_common.c: neuter abort() in dlopen failure path
                 substituteInPlace src/dispatch_common.c \
                   --replace-fail 'abort();' '(void)0;'
-                # Install resolver failure handler so generated dispatch
-                # returns a no-op stub instead of aborting.
-                substituteInPlace src/dispatch_common.c \
+
+                # dispatch_common.h: static stub that all resolvers can return
+                substituteInPlace src/dispatch_common.h \
                   --replace-fail \
-                    'static bool library_initialized;' \
-                    'static bool library_initialized;
-static void epoxy_stub_(void) { }
-static void (*epoxy_stub_handler_(const char *n))(void) { (void)n; return epoxy_stub_; }' \
+                    'extern epoxy_resolver_failure_handler_t epoxy_resolver_failure_handler;' \
+                    'extern epoxy_resolver_failure_handler_t epoxy_resolver_failure_handler;
+static inline long epoxy_static_stub_(void) { return 0; }'
+
+                # gen_dispatch.py: wrap provider condition in braces
+                substituteInPlace src/gen_dispatch.py \
                   --replace-fail \
-                    'library_initialized = true;' \
-                    'library_initialized = true;
-    epoxy_resolver_failure_handler = epoxy_stub_handler_;'
+                    "self.outln('            if ({0})'.format(self.provider_condition[human_name]))" \
+                    "self.outln('            if ({0}) {{'.format(self.provider_condition[human_name]))"
+
+                # gen_dispatch.py: NULL-check loader return, add closing brace
+                substituteInPlace src/gen_dispatch.py \
+                  --replace-fail \
+                    "self.outln('                return {0};'.format(self.provider_loader[human_name]).format(\"entrypoint_strings + entrypoints[i]\"))
+            self.outln('            break;')" \
+                    "self.outln('                void *_r = (void *){0};'.format(self.provider_loader[human_name]).format(\"entrypoint_strings + entrypoints[i]\"))
+            self.outln('                if (_r) return _r;')
+            self.outln('            }')
+            self.outln('            break;')"
+
+                # gen_dispatch.py: terminator abort -> break
+                substituteInPlace src/gen_dispatch.py \
+                  --replace-fail \
+                    "self.outln('            abort(); /* Not reached */')" \
+                    "self.outln('            break;')"
+
+                # gen_dispatch.py: remove handler check (LTO splits the global)
+                substituteInPlace src/gen_dispatch.py \
+                  --replace-fail \
+                    "        self.outln('    if (epoxy_resolver_failure_handler)')
+        self.outln('        return epoxy_resolver_failure_handler(name);')" \
+                    ""
+
+                # gen_dispatch.py: final abort -> return stub
+                substituteInPlace src/gen_dispatch.py \
+                  --replace-fail \
+                    "self.outln('    abort();')" \
+                    "self.outln('    return (void *)epoxy_static_stub_;')"
+
+                echo "=== gen_dispatch.py patched resolver (lines 710-755) ==="
+                sed -n '710,755p' src/gen_dispatch.py
               '';
             });
             # gen-lock-obj.sh fails with LTO: clang -flto produces LLVM bitcode objects,

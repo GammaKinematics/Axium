@@ -1939,6 +1939,7 @@ void engine_set_screen_info(int width, int height,
 
 bool engine_init(void)
 {
+
     g_display = WPE_DISPLAY(g_object_new(AXIUM_TYPE_DISPLAY, NULL));
     GError* error = NULL;
     if (!wpe_display_connect(g_display, &error)) {
