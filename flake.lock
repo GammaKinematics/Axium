@@ -24,8 +24,8 @@
         ]
       },
       "locked": {
-        "lastModified": 1772325370,
-        "narHash": "sha256-YBf6y1KcIOCGfLfX5URe7AC5WEoajqVhDufNcyTXEp0=",
+        "lastModified": 1772806841,
+        "narHash": "sha256-i28P8IPpG8xTsX9rRIqgK1/Z4Cw52JmTmrSGKmjqWfY=",
         "path": "/data/Browser/Bindings-Onix",
         "type": "path"
       },
@@ -36,8 +36,8 @@
     },
     "display-onix": {
       "locked": {
-        "lastModified": 1772569028,
-        "narHash": "sha256-GaQxTsb1gxPPt6JgaAPSHR3GqOd2hvh8iy0Kbi/k9WM=",
+        "lastModified": 1772806930,
+        "narHash": "sha256-TRoKu9zZy9kVYI6il1zdJnOJNnxkQ10nY+6NQ07EJaY=",
         "path": "/data/Browser/Display-Onix",
         "type": "path"
       },
@@ -160,8 +160,8 @@
     },
     "theme-onix": {
       "locked": {
-        "lastModified": 1772327548,
-        "narHash": "sha256-Ghb/LWKDT4X0qbPzSOpb0ig7T8xyKn0RcNhOPgq8WvE=",
+        "lastModified": 1772816354,
+        "narHash": "sha256-D6PXAdqWbW3vwB3I4wRuQkF+j2wnP4X6rNf2GZ3oGkg=",
         "path": "/data/Browser/Theme-Onix",
         "type": "path"
       },

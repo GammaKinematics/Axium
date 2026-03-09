@@ -1937,8 +1937,13 @@ void engine_set_screen_info(int width, int height,
 // Init / Shutdown
 // ---------------------------------------------------------------------------
 
+// Axium: static TLS backend registration — no dlopen.
+extern void g_tls_backend_gnutls_register(void *module);
+
 bool engine_init(void)
 {
+    // Register GnuTLS backend before any networking.
+    g_tls_backend_gnutls_register(NULL);
 
     g_display = WPE_DISPLAY(g_object_new(AXIUM_TYPE_DISPLAY, NULL));
     GError* error = NULL;

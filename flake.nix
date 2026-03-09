@@ -252,6 +252,27 @@ static inline long epoxy_static_stub_(void) { return 0; }'
                 sed -n '710,755p' src/gen_dispatch.py
               '';
             });
+            # Axium: glib-networking static TLS backend.
+            # GIO loads TLS backends (gnutls) via dlopen of .so modules.
+            # On static musl, dlopen is stubbed → no TLS backend registers →
+            # g_tls_backend_get_default() returns GDummyTlsBackend → HTTPS dead.
+            # Fix: build as static lib, link into binary, register directly.
+            glib-networking = prev.glib-networking.overrideAttrs (old: {
+              mesonFlags = (old.mesonFlags or []) ++ [
+                "-Ddefault_library=static"
+                "-Dinstalled_tests=false"
+                "-Dtests=false"
+              ];
+              # G_DEFINE_DYNAMIC_TYPE needs a GTypeModule — NULL won't work.
+              # Switch to static type registration so get_type() works without a module.
+              postPatch = (old.postPatch or "") + ''
+                substituteInPlace tls/gnutls/gtlsbackend-gnutls.c \
+                  --replace-fail 'G_DEFINE_DYNAMIC_TYPE_EXTENDED' 'G_DEFINE_FINAL_TYPE_WITH_CODE' \
+                  --replace-fail 'G_TYPE_OBJECT, G_TYPE_FLAG_FINAL,' 'G_TYPE_OBJECT,' \
+                  --replace-fail 'G_IMPLEMENT_INTERFACE_DYNAMIC' 'G_IMPLEMENT_INTERFACE'
+              '';
+              meta = old.meta // { badPlatforms = []; };
+            });
             # gen-lock-obj.sh fails with LTO: clang -flto produces LLVM bitcode objects,
             # objdump can't read .bss section to determine pthread_mutex_t size, producing
             # a broken lock-obj header. Use the correct pre-generated file for musl.
@@ -425,7 +446,14 @@ static inline long epoxy_static_stub_(void) { return 0; }'
       };
 
       devShells.${system}.default = pkgs.mkShell {
-        packages = with pkgs; [ odin gdb ];
+        packages = with pkgs; [
+          odin gdb strace ltrace valgrind
+          binutils elfutils patchelf        # readelf, nm, strings, objdump, ar
+          llvmPackages.bintools-unwrapped   # llvm-nm, llvm-objdump, llvm-readelf, llvm-ar
+          llvmPackages.libllvm              # llvm-dis, llvm-bcanalyzer, opt, llvm-lto
+          pkg-config cmake ninja meson
+          nix-tree nix-diff
+        ];
         inputsFrom = [ engine.webkit ];
       };
     };

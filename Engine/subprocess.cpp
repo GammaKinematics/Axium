@@ -2,6 +2,7 @@
 // Odin can't call C++ namespaced functions directly.
 
 #include <stdio.h>
+#include <unistd.h>
 
 namespace WebKit {
     int WebProcessMain(int argc, char** argv);

@@ -45,6 +45,7 @@ pkgs.stdenv.mkDerivation {
       pkgs.libxcb-image pkgs.libxcb-render-util
       pkgs.libwebp
       pkgs.libseccomp     # bubblewrap sandbox seccomp filter
+      pkgs.glib-networking pkgs.gnutls pkgs.nettle pkgs.gmp
     ];
 
   buildPhase = ''
@@ -155,6 +156,10 @@ pkgs.stdenv.mkDerivation {
       -L${pkgs.libxcb-render-util}/lib -lxcb-render-util \
       -lxcb-render -lxcb-shm \
       -L${pkgs.libseccomp}/lib -lseccomp \
+      -L${pkgs.glib-networking}/lib/gio/modules -lgiognutls \
+      -L${pkgs.gnutls}/lib -lgnutls \
+      -L${pkgs.nettle}/lib -lhogweed -lnettle \
+      -L${pkgs.gmp}/lib -lgmp \
       -lm -lpthread -ldl -lc++ \
       -Wl,--whole-archive $(clang --target=x86_64-unknown-linux-musl --rtlib=compiler-rt --print-libgcc-file-name) -Wl,--no-whole-archive
   '' else ''
