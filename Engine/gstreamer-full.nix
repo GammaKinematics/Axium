@@ -115,7 +115,7 @@ pkgs.stdenv.mkDerivation {
     "-Dgst-plugins-good:vpx=enabled"
     "-Dgst-plugins-good:audioparsers=enabled"
     "-Dgst-plugins-good:id3demux=enabled"
-    "-Dgst-plugins-good:scaletempo=enabled"
+    "-Dgst-plugins-good:audiofx=enabled"     # includes scaletempo
     "-Dgst-plugins-good:wavparse=enabled"
     # Disable the heavy hitters
     "-Dgst-plugins-good:pulse=disabled"
