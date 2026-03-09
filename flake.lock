@@ -3,14 +3,18 @@
     "adblock-rust": {
       "flake": false,
       "locked": {
-        "lastModified": 1771942390,
-        "narHash": "sha256-5av9aS2P4lYgbIzZbvQ009WNFi2OIjHY8xWrEoxIQDU=",
-        "path": "/data/Browser/adblock-rust",
-        "type": "path"
+        "lastModified": 1772848244,
+        "narHash": "sha256-kTAyzeM+98fWtrlKw+p+kTPtyUUl8/EaL8e9qxX3ndE=",
+        "ref": "refs/heads/master",
+        "rev": "73ea48b3c88099daf51316c743a9b6699fc13aca",
+        "shallow": true,
+        "type": "git",
+        "url": "https://github.com/brave/adblock-rust"
       },
       "original": {
-        "path": "/data/Browser/adblock-rust",
-        "type": "path"
+        "shallow": true,
+        "type": "git",
+        "url": "https://github.com/brave/adblock-rust"
       }
     },
     "bindings-onix": {

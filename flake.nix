@@ -23,7 +23,7 @@
     edge-onix.url = "path:/data/Browser/Edge-Onix";
 
     adblock-rust = {
-      url = "path:/data/Browser/adblock-rust";
+      url = "git+https://github.com/brave/adblock-rust?shallow=1";
       flake = false;
     };
 
@@ -197,6 +197,26 @@ EOF
               mesonFlags = builtins.map (f:
                 if f == "-Degl=no" then "-Degl=yes" else f
               ) old.mesonFlags;
+              postPatch = (old.postPatch or "") + ''
+                # Axium: static musl has no dlopen — remove all abort() so
+                # failures return gracefully, and install a resolver stub
+                # so generated dispatch returns a no-op instead of aborting.
+                # Remove all abort() calls — dlopen/dlsym failures return gracefully.
+                substituteInPlace src/dispatch_common.c \
+                  --replace-fail 'abort();' '(void)0;'
+                # Install resolver failure handler so generated dispatch
+                # returns a no-op stub instead of aborting.
+                substituteInPlace src/dispatch_common.c \
+                  --replace-fail \
+                    'static bool library_initialized;' \
+                    'static bool library_initialized;
+static void epoxy_stub_(void) { }
+static void (*epoxy_stub_handler_(const char *n))(void) { (void)n; return epoxy_stub_; }' \
+                  --replace-fail \
+                    'library_initialized = true;' \
+                    'library_initialized = true;
+    epoxy_resolver_failure_handler = epoxy_stub_handler_;'
+              '';
             });
             # gen-lock-obj.sh fails with LTO: clang -flto produces LLVM bitcode objects,
             # objdump can't read .bss section to determine pthread_mutex_t size, producing
@@ -342,6 +362,7 @@ EOF
         inherit (adblock) lib resources;
         inherit (engine) webkit shim pages;
         static-webkit = sEngine.webkit;
+        static-adblock-lib = sAdblock.lib;
         static-gstreamer = sGstreamer;
         translate-lib = translate.lib;
 

@@ -3,7 +3,11 @@
 let
   webkitEngine = engine.webkit;
 
-  lib = hostPkgs.rustPlatform.buildRustPackage {
+  # For static builds, use cross pkgs' rustPlatform so cargoBuildHook
+  # targets x86_64-unknown-linux-musl (matching the musl stdenv).
+  rustPlatform = if static_lto then pkgs.rustPlatform else hostPkgs.rustPlatform;
+
+  lib = rustPlatform.buildRustPackage {
     pname = "axium-adblock";
     version = "0.1.0";
 
@@ -68,8 +72,6 @@ let
       license = hostPkgs.lib.licenses.mpl20;
       platforms = [ "x86_64-linux" ];
     };
-  } // hostPkgs.lib.optionalAttrs static_lto {
-    CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
   };
 
   # Compile adblock.c to .o — linked into the browser binary directly
@@ -86,6 +88,7 @@ let
       webkitEngine
       pkgs.glib
       pkgs.libsoup_3
+      pkgs.nghttp2
     ];
 
     buildPhase = ''

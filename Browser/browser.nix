@@ -99,7 +99,7 @@ pkgs.stdenv.mkDerivation {
     # clang+LLD can optimize across at link time.
     clang -flto -Os --target=x86_64-unknown-linux-musl \
       -static -fuse-ld=lld \
-      -fsanitize=cfi -fvisibility=hidden \
+      \
       --sysroot=${musl} --rtlib=compiler-rt --unwindlib=libunwind \
       -Wl,--strip-all -Wl,--icf=all -Wl,--gc-sections -Wl,--allow-multiple-definition -Wl,-z,noexecstack \
       -o axium axium.bc \
@@ -176,8 +176,6 @@ pkgs.stdenv.mkDerivation {
     mkdir -p $out/bin
     cp axium $out/bin/
     mv $out/bin/axium $out/bin/.axium-unwrapped
-    ln -s .axium-unwrapped $out/bin/WPEWebProcess
-    ln -s .axium-unwrapped $out/bin/WPENetworkProcess
   '' else ''
     mkdir -p $out/bin
     cp axium $out/bin/
@@ -213,6 +211,8 @@ export AXIUM_ADBLOCK_DIR="${adblock.resources}/share/adblock"
 exec "$(dirname "$0")/.axium-unwrapped" "$@"
 WRAPPER
     chmod +x $out/bin/axium
+    ln -sf .axium-unwrapped $out/bin/WPEWebProcess
+    ln -sf .axium-unwrapped $out/bin/WPENetworkProcess
   '';
 
   meta = {
