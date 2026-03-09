@@ -38,7 +38,6 @@ pkgs.stdenv.mkDerivation {
     libvpx
     openh264
     fdk_aac
-    dav1d
     flac
     mpg123
     zlib
@@ -144,7 +143,6 @@ pkgs.stdenv.mkDerivation {
     "-Dgst-plugins-bad:closedcaption=enabled"
     "-Dgst-plugins-bad:openh264=enabled"
     "-Dgst-plugins-bad:fdkaac=enabled"
-    "-Dgst-plugins-bad:dav1d=enabled"
     "-Dgst-plugins-bad:mpegtsdemux=enabled"
     "-Dgst-plugins-bad:subenc=enabled"
     # Disable GL and everything else

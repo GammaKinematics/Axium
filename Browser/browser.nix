@@ -41,7 +41,7 @@ pkgs.stdenv.mkDerivation {
   ] ++ displayDeps ++ lvgl.passthru.deps ++ keepass.buildInputs ++ translate.buildInputs
     ++ pkgs.lib.optionals static_lto [
       gstreamer pkgs.libogg pkgs.libvorbis pkgs.libopus pkgs.libvpx
-      pkgs.openh264 pkgs.fdk_aac pkgs.dav1d pkgs.flac pkgs.mpg123
+      pkgs.openh264 pkgs.fdk_aac pkgs.flac pkgs.mpg123
       pkgs.libffi pkgs.pcre2 pkgs.nghttp2 pkgs.libpsl pkgs.brotli pkgs.bzip2
       pkgs.graphite2 pkgs.libidn2 pkgs.libunistring pkgs.util-linuxMinimal
       pkgs.libselinux pkgs.libsepol
@@ -144,7 +144,6 @@ pkgs.stdenv.mkDerivation {
       -L${pkgs.libvpx}/lib -lvpx \
       -L${pkgs.openh264}/lib -lopenh264 \
       -L${pkgs.fdk_aac}/lib -lfdk-aac \
-      -L${pkgs.dav1d}/lib -ldav1d \
       -L${pkgs.flac}/lib -lFLAC \
       -L${pkgs.mpg123}/lib -lmpg123 \
       -L${pkgs.libffi}/lib -lffi \
