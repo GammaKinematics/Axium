@@ -31,14 +31,9 @@ let
     "-L${pkgs.libpsl}/lib -lpsl"
     "-L${pkgs.brotli.lib}/lib -lbrotlidec -lbrotlicommon"
     "-L${pkgs.bzip2}/lib -lbz2"
-    "-L${pkgs.graphite2}/lib -lgraphite2"
     "-L${pkgs.libidn2}/lib -lidn2"
     "-L${pkgs.libunistring}/lib -lunistring"
     "-L${pkgs.util-linuxMinimal}/lib -lmount -lblkid"
-    "-L${pkgs.glib.out}/lib -lsysprof-capture-4"
-    "-L${pkgs.libxcb-image}/lib -lxcb-image"
-    "-L${pkgs.libxcb-render-util}/lib -lxcb-render-util"
-    "-lxcb-render"
   ];
 
   # Strip -L paths to get bare -l flags for cmake (cmake finds paths via pkg-config).
@@ -463,6 +458,5 @@ in {
     libwebp freetype fontconfig expat libepoxy libgcrypt libgpg-error
     libtasn1 libxkbcommon libffi pcre2 nghttp2 libpsl brotli bzip2
     libidn2 libunistring util-linuxMinimal
-    libxcb-image libxcb-render-util
   ] ++ pkgs.lib.optionals (gstreamer != null) gstreamer.buildInputs;
 }
