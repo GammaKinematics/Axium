@@ -126,28 +126,28 @@ let
         --replace-fail \
           'namespace WebKit {' \
           '// Axium: weak default so cmake-built WPEWebProcess links without adblock.o.
-      // The real definition in adblock.o overrides this in the final binary.
-      extern "C" __attribute__((weak)) void webkit_web_process_extension_initialize_with_user_data(
-          WebKitWebProcessExtension*, GVariant*) {}
+// The real definition in adblock.o overrides this in the final binary.
+extern "C" __attribute__((weak)) void webkit_web_process_extension_initialize_with_user_data(
+    WebKitWebProcessExtension*, GVariant*) {}
 
-      namespace WebKit {'
+namespace WebKit {'
       substituteInPlace Source/WebKit/WebProcess/InjectedBundle/API/glib/WebProcessExtensionManager.cpp \
         --replace-fail \
           '    if (webProcessExtensionsDirectory.isNull())
-              return;
+        return;
 
-          Vector<String> modulePaths;
-          scanModules(webProcessExtensionsDirectory, modulePaths);
+    Vector<String> modulePaths;
+    scanModules(webProcessExtensionsDirectory, modulePaths);
 
-          for (size_t i = 0; i < modulePaths.size(); ++i) {
-              auto module = makeUnique<Module>(modulePaths[i]);
-              if (!module->load())
-                  continue;
-              if (initializeWebProcessExtension(module.get(), userData.get()))
-                  m_extensionModules.append(module.release());
-          }' \
+    for (size_t i = 0; i < modulePaths.size(); ++i) {
+        auto module = makeUnique<Module>(modulePaths[i]);
+        if (!module->load())
+            continue;
+        if (initializeWebProcessExtension(module.get(), userData.get()))
+            m_extensionModules.append(module.release());
+    }' \
           '    // Axium: direct call — adblock linked statically, no dlopen.
-          webkit_web_process_extension_initialize_with_user_data(m_extension.get(), userData.get());'
+    webkit_web_process_extension_initialize_with_user_data(m_extension.get(), userData.get());'
       # FindSoup3.cmake: pkg-config version detection fails in cross builds.
       substituteInPlace Source/cmake/FindSoup3.cmake \
         --replace-fail 'set(Soup3_VERSION ''${PC_Soup3_VERSION})' \
