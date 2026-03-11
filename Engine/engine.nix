@@ -1,5 +1,6 @@
 { pkgs, hostPkgs ? pkgs, webkit, pages,
   static ? false,
+  gpu ? false,
   gstreamer ? null,  # gstreamer-full attrset { drv, linkFlags, wholeArchiveFlags, buildInputs }
 }:
 
@@ -53,28 +54,21 @@ let
 
     src = webkit;
 
-    postPatch = ''
-      # Axium: disable compositing — force NonCompositedFrameRenderer (Skia CPU).
-      # DrawingAreaCoordinatedGraphicsGLib.cpp:enterAcceleratedCompositingModeIfNeeded()
-      # checks settings().acceleratedCompositingEnabled() to choose LayerTreeHost vs
-      # NonCompositedFrameRenderer. Setting these to false ensures the non-GL path.
+    postPatch = pkgs.lib.optionalString (!gpu) ''
+      # Axium (CPU-only): disable compositing — force NonCompositedFrameRenderer (Skia CPU).
       substituteInPlace Source/WebKit/UIProcess/wpe/WebPreferencesWPE.cpp \
         --replace-fail 'setAcceleratedCompositingEnabled(true)' 'setHardwareAccelerationEnabled(false); setAcceleratedCompositingEnabled(false)' \
         --replace-fail 'setForceCompositingMode(true)' 'setForceCompositingMode(false)'
 
-      # Axium: skip ALL EGL/PlatformDisplay init — we run CPU-only.
-      # Without this, PlatformDisplaySurfaceless::create() loads Mesa (~75 MB per process).
-      # We return immediately so no EGL display is ever created.
+      # Axium (CPU-only): skip EGL/PlatformDisplay init — avoids loading Mesa (~75 MB per process).
       substituteInPlace Source/WebKit/WebProcess/glib/WebProcessGLib.cpp \
         --replace-fail 'if (PlatformDisplay::sharedDisplayIfExists())' 'if (true) // Axium: skip EGL init entirely'
 
-      # Axium: neutralize unguarded DRM_FORMAT_XRGB8888 in AcceleratedBackingStore.cpp.
-      # This DMA-BUF branch is dead code for us (we use SHM), but won't compile without libdrm.
+      # Axium (CPU-only): neutralize DRM_FORMAT_XRGB8888 — won't compile without libdrm.
       substituteInPlace Source/WebKit/UIProcess/wpe/AcceleratedBackingStore.cpp \
         --replace-fail 'if (wpe_buffer_dma_buf_get_format(dmaBuffer) == DRM_FORMAT_XRGB8888)' 'if (false) // Axium: no LIBDRM, DMA-BUF path unused'
 
-      # Axium: neutralize unguarded memoryMappedGPUBuffer() call — only exists with USE(GBM).
-      # isDMABufBackedTexture is already false without GBM, so this is a no-op anyway.
+      # Axium (CPU-only): neutralize memoryMappedGPUBuffer() — requires USE(GBM).
       substituteInPlace Source/WebCore/platform/graphics/skia/SkiaPaintingEngine.cpp \
         --replace-fail 'if (!texture->memoryMappedGPUBuffer())' 'if (false) // Axium: memoryMappedGPUBuffer requires USE(GBM)'
 
@@ -236,10 +230,13 @@ GSTEOF
       gst_all_1.gst-plugins-base
       gst_all_1.gst-plugins-good
     ]) ++ (with pkgs; [
-      # Graphics — Mesa, GBM, DRM removed: compositing disabled, no EGL init at runtime.
       freetype
       fontconfig
       expat
+    ]) ++ pkgs.lib.optionals gpu (with pkgs; [
+      # GPU compositing: GBM (DMA-BUF buffer sharing) + libdrm (kernel DRM ioctls)
+      libdrm
+      mesa       # provides gbm.pc / libgbm
     ]);
 
     cmakeFlags = [
@@ -262,9 +259,9 @@ GSTEOF
       "-DENABLE_WEBGL=OFF"
       "-DENABLE_OFFSCREEN_CANVAS=OFF"
       "-DENABLE_OFFSCREEN_CANVAS_IN_WORKERS=OFF"
-      "-DUSE_GBM=OFF"
-      "-DUSE_LIBDRM=OFF"
-      "-DUSE_GSTREAMER_GL=OFF"
+      "-DUSE_GBM=${if gpu then "ON" else "OFF"}"
+      "-DUSE_LIBDRM=${if gpu then "ON" else "OFF"}"
+      "-DUSE_GSTREAMER_GL=${if gpu then "ON" else "OFF"}"
 
       # --- Media ---
       "-DENABLE_MEDIA_STREAM=OFF"
@@ -458,5 +455,6 @@ in {
     libwebp freetype fontconfig expat libepoxy libgcrypt libgpg-error
     libtasn1 libxkbcommon libffi pcre2 nghttp2 libpsl brotli bzip2
     libidn2 libunistring util-linuxMinimal
-  ] ++ pkgs.lib.optionals (gstreamer != null) gstreamer.buildInputs;
+  ] ++ pkgs.lib.optionals gpu (with pkgs; [ libdrm mesa ])
+    ++ pkgs.lib.optionals (gstreamer != null) gstreamer.buildInputs;
 }

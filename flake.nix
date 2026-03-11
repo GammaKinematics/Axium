@@ -132,6 +132,7 @@
           engine = import ./Engine/engine.nix {
             pkgs = buildPkgs;
             inherit hostPkgs webkit pages static;
+            gpu = if static then false else gpu;
             gstreamer = if static then gstreamer else null;
           };
 
@@ -192,7 +193,8 @@
         default = dynamic;
 
         # Debug outputs
-        inherit (dynamicBuild.engine) webkit shim pages;
+        inherit (dynamicBuild.engine) shim pages;
+        dynamic-webkit = dynamicBuild.engine.webkit;
         inherit (dynamicBuild.adblock) lib resources;
         translate-lib = dynamicBuild.translate.lib;
         static-webkit = staticBuild.engine.webkit;
