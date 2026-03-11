@@ -5,12 +5,15 @@
 }:
 
 let
+  # Static cross overlay already builds harfbuzz with ICU; dynamic nixpkgs doesn't.
+  hb = if static then pkgs.harfbuzz else pkgs.harfbuzzFull;
+
   # Single source of truth: all WebKit dep link flags (-L/-l).
   # Used by cmake (bare -l extracted) and exported for the final binary.
   depFlags = [
     "-L${pkgs.glib.out}/lib -lglib-2.0 -lgobject-2.0 -lgio-2.0 -lgmodule-2.0"
     "-L${pkgs.libsoup_3}/lib -lsoup-3.0"
-    "-L${pkgs.harfbuzz}/lib -lharfbuzz -lharfbuzz-icu"
+    "-L${hb}/lib -lharfbuzz -lharfbuzz-icu"
     "-L${pkgs.icu.out}/lib -licui18n -licuuc -licudata"
     "-L${pkgs.libxml2}/lib -lxml2"
     "-L${pkgs.sqlite.out}/lib -lsqlite3"
@@ -208,7 +211,7 @@ GSTEOF
       # Core
       glib
       libffi            # transitive dep of gobject (gclosure marshalling)
-      harfbuzz
+    ] ++ [ hb ] ++ (with pkgs; [
       icu
       libjpeg
       libgcrypt
@@ -451,10 +454,11 @@ in {
 
   # All pkgs needed by the final binary for nix dep tracking.
   buildInputs = with pkgs; [
-    glib libsoup_3 harfbuzz icu libxml2 sqlite zlib libpng libjpeg
+    glib libsoup_3 icu libxml2 sqlite zlib libpng libjpeg
     libwebp freetype fontconfig expat libepoxy libgcrypt libgpg-error
     libtasn1 libxkbcommon libffi pcre2 nghttp2 libpsl brotli bzip2
     libidn2 libunistring util-linuxMinimal
-  ] ++ pkgs.lib.optionals gpu (with pkgs; [ libdrm mesa ])
+  ] ++ [ hb ]
+    ++ pkgs.lib.optionals gpu (with pkgs; [ libdrm mesa ])
     ++ pkgs.lib.optionals (gstreamer != null) gstreamer.buildInputs;
 }
