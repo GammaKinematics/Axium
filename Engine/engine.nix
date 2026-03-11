@@ -1,11 +1,58 @@
 { pkgs, hostPkgs ? pkgs, webkit, pages,
-  static_lto ? false,
-  gstreamer ? null,  # gstreamer-full static library (required when static_lto)
+  static ? false,
+  gstreamer ? null,  # gstreamer-full attrset { drv, linkFlags, wholeArchiveFlags, buildInputs }
 }:
 
 let
+  # Single source of truth: all WebKit dep link flags (-L/-l).
+  # Used by cmake (bare -l extracted) and exported for the final binary.
+  depFlags = [
+    "-L${pkgs.glib.out}/lib -lglib-2.0 -lgobject-2.0 -lgio-2.0 -lgmodule-2.0"
+    "-L${pkgs.libsoup_3}/lib -lsoup-3.0"
+    "-L${pkgs.harfbuzz}/lib -lharfbuzz -lharfbuzz-icu"
+    "-L${pkgs.icu.out}/lib -licui18n -licuuc -licudata"
+    "-L${pkgs.libxml2}/lib -lxml2"
+    "-L${pkgs.sqlite.out}/lib -lsqlite3"
+    "-L${pkgs.zlib}/lib -lz"
+    "-L${pkgs.libpng}/lib -lpng16"
+    "-L${pkgs.libjpeg}/lib -ljpeg"
+    "-L${pkgs.libwebp}/lib -lwebp -lwebpdemux -lwebpmux -lsharpyuv"
+    "-L${pkgs.freetype}/lib -lfreetype"
+    "-L${pkgs.fontconfig.lib}/lib -lfontconfig"
+    "-L${pkgs.expat}/lib -lexpat"
+    "-L${pkgs.libepoxy}/lib -lepoxy"
+    "-L${pkgs.libgcrypt}/lib -lgcrypt"
+    "-L${pkgs.libgpg-error}/lib -lgpg-error"
+    "-L${pkgs.libtasn1}/lib -ltasn1"
+    "-L${pkgs.libxkbcommon}/lib -lxkbcommon"
+    "-L${pkgs.libffi}/lib -lffi"
+    "-L${pkgs.pcre2}/lib -lpcre2-8"
+    "-L${pkgs.nghttp2.lib}/lib -lnghttp2"
+    "-L${pkgs.libpsl}/lib -lpsl"
+    "-L${pkgs.brotli.lib}/lib -lbrotlidec -lbrotlicommon"
+    "-L${pkgs.bzip2}/lib -lbz2"
+    "-L${pkgs.graphite2}/lib -lgraphite2"
+    "-L${pkgs.libidn2}/lib -lidn2"
+    "-L${pkgs.libunistring}/lib -lunistring"
+    "-L${pkgs.util-linuxMinimal}/lib -lmount -lblkid"
+    "-L${pkgs.glib.out}/lib -lsysprof-capture-4"
+    "-L${pkgs.libxcb-image}/lib -lxcb-image"
+    "-L${pkgs.libxcb-render-util}/lib -lxcb-render-util"
+    "-lxcb-render"
+  ];
+
+  # Strip -L paths to get bare -l flags for cmake (cmake finds paths via pkg-config).
+  # Includes gstreamer codec transitive deps when static (cmake-built WebProcess/
+  # NetworkProcess link gstreamer whole-archive and need these to resolve symbols).
+  bareLFlags = builtins.concatStringsSep " " (
+    builtins.filter (s: builtins.match "-L.*" s == null)
+      (builtins.concatMap (s: pkgs.lib.splitString " " s)
+        (depFlags ++ pkgs.lib.optionals (gstreamer != null)
+          (pkgs.lib.splitString " " gstreamer.linkFlags)))
+  );
+
   # WebKit uses stdenvNoLto when static — cmake handles LTO via -DLTO_MODE=thin
-  webkitEngine = (if static_lto then pkgs.stdenvNoLto else pkgs.stdenv).mkDerivation {
+  webkitEngine = (if static then pkgs.stdenvNoLto else pkgs.stdenv).mkDerivation {
     pname = "axium-engine";
     version = "2.51.92";
 
@@ -36,8 +83,11 @@ let
       substituteInPlace Source/WebCore/platform/graphics/skia/SkiaPaintingEngine.cpp \
         --replace-fail 'if (!texture->memoryMappedGPUBuffer())' 'if (false) // Axium: memoryMappedGPUBuffer requires USE(GBM)'
 
+    '' + pkgs.lib.optionalString static ''
       # Axium: unconditional subprocess discovery from executable's parent directory.
       # Single-binary architecture: WPEWebProcess/WPENetworkProcess are symlinks to axium.
+      # WEBKIT_EXEC_PATH is behind DEVELOPER_MODE — remove the guards so release builds
+      # check the env var and executable's parent dir before falling back to PKGLIBEXECDIR.
       sed -i '/#if ENABLE(DEVELOPER_MODE)/d' Source/WebKit/Shared/glib/ProcessExecutablePathGLib.cpp
       sed -i '0,/^#endif$/{/^#endif$/d}' Source/WebKit/Shared/glib/ProcessExecutablePathGLib.cpp
       sed -i '0,/^#endif$/{/^#endif$/d}' Source/WebKit/Shared/glib/ProcessExecutablePathGLib.cpp
@@ -98,7 +148,6 @@ let
           }' \
           '    // Axium: direct call — adblock linked statically, no dlopen.
           webkit_web_process_extension_initialize_with_user_data(m_extension.get(), userData.get());'
-    '' + pkgs.lib.optionalString static_lto ''
       # FindSoup3.cmake: pkg-config version detection fails in cross builds.
       substituteInPlace Source/cmake/FindSoup3.cmake \
         --replace-fail 'set(Soup3_VERSION ''${PC_Soup3_VERSION})' \
@@ -143,7 +192,7 @@ endif()'
       # Axium: --whole-archive for GStreamer is target-specific (would break cmake try_compile).
       # Transitive -l deps and linker options go in CMAKE_EXE/MODULE_LINKER_FLAGS (harmless
       # for try_compile — unused libs get ignored).
-      gst_whole="$(echo ${gstreamer}/lib/libgst*.a) $(echo ${gstreamer}/lib/gstreamer-1.0/lib*.a)"
+      gst_whole="$(echo ${gstreamer.drv}/lib/libgst*.a) $(echo ${gstreamer.drv}/lib/gstreamer-1.0/lib*.a)"
       cat >> Source/WebKit/CMakeLists.txt << GSTEOF
 
 # Axium: GStreamer --whole-archive — target-specific to avoid poisoning cmake try_compile.
@@ -170,7 +219,7 @@ GSTEOF
       # Core
       glib
       libffi            # transitive dep of gobject (gclosure marshalling)
-      harfbuzzFull
+      harfbuzz
       icu
       libjpeg
       libgcrypt
@@ -186,7 +235,7 @@ GSTEOF
 
       libepoxy
 
-    ] ++ (if static_lto then [ gstreamer pkgs.openh264 pkgs.fdk_aac pkgs.flac pkgs.mpg123 ] else with pkgs; [
+    ] ++ (if static then [ gstreamer.drv ] ++ gstreamer.buildInputs else with pkgs; [
       # GStreamer (video/audio playback) — nixpkgs packages for dynamic build
       gst_all_1.gstreamer
       gst_all_1.gst-plugins-base
@@ -200,7 +249,7 @@ GSTEOF
 
     cmakeFlags = [
       "-DPORT=WPE"
-      (if static_lto then "-DCMAKE_BUILD_TYPE=MinSizeRel" else "-DCMAKE_BUILD_TYPE=Release")
+      (if static then "-DCMAKE_BUILD_TYPE=MinSizeRel" else "-DCMAKE_BUILD_TYPE=Release")
       # Inline 128-bit atomics (cmpxchg16b) — avoids __atomic_*_16 libcalls
       # that require libatomic (not available in LLVM-only toolchain).
       "-DCMAKE_C_FLAGS=-mcx16"
@@ -280,7 +329,7 @@ GSTEOF
       "-DUSE_LIBBACKTRACE=OFF"
       "-DUSE_SKIA_OPENTYPE_SVG=OFF"
 
-    ] ++ pkgs.lib.optionals static_lto [
+    ] ++ pkgs.lib.optionals static [
       # Thin LTO for WebKit only (too large for full LTO linking).
       # WebKit's cmake adds -flto=thin to C/CXX/linker flags and enables LLD.
       # Requires COMPILER_IS_CLANG (provided by pkgsLto's useLLVM = true).
@@ -328,20 +377,17 @@ GSTEOF
       # HAVE_MAP_ALIGNED, HAVE_SHM_ANON, HAVE_TIMINGSAFE_BCMP, HAVE_STAT_BIRTHTIME
     ];
 
-    # Static linking: cmake misses transitive deps of glib/gio.
-    # gobject→libffi, gio→gmodule/libmount/libblkid/libselinux/sysprof, glib→pcre2.
-    # cmakeFlagsArray preserves spaces (cmakeFlags word-splits).
-    preConfigure = pkgs.lib.optionalString static_lto ''
-      cmakeFlagsArray+=("-DCMAKE_EXE_LINKER_FLAGS=-lffi -lgmodule-2.0 -lmount -lblkid -lselinux -lsysprof-capture-4 -lpcre2-8 -lnghttp2 -lpsl -lbrotlidec -lbrotlicommon -lbz2 -lexpat -lgraphite2 -lidn2 -lunistring -logg -lopus -lvorbis -lvorbisenc -lvpx -lopenh264 -lfdk-aac -lFLAC -lmpg123 -lsharpyuv -Wl,--allow-multiple-definition -Wl,--icf=all -Wl,--error-limit=0")
-      cmakeFlagsArray+=("-DCMAKE_MODULE_LINKER_FLAGS=-lffi -lgmodule-2.0 -lmount -lblkid -lselinux -lsysprof-capture-4 -lpcre2-8 -lnghttp2 -lpsl -lbrotlidec -lbrotlicommon -lbz2 -lexpat -lgraphite2 -lidn2 -lunistring -logg -lopus -lvorbis -lvorbisenc -lvpx -lopenh264 -lfdk-aac -lFLAC -lmpg123 -lsharpyuv -Wl,--allow-multiple-definition -Wl,--icf=all -Wl,--error-limit=0")
+    # Static linking: cmake misses transitive deps — pass bare -l flags
+    # derived from depFlags. cmakeFlagsArray preserves spaces.
+    preConfigure = pkgs.lib.optionalString static ''
+      cmakeFlagsArray+=("-DCMAKE_EXE_LINKER_FLAGS=${bareLFlags} -Wl,--allow-multiple-definition -Wl,--error-limit=0")
+      cmakeFlagsArray+=("-DCMAKE_MODULE_LINKER_FLAGS=${bareLFlags} -Wl,--allow-multiple-definition -Wl,--error-limit=0")
       # GStreamer plugin .pc files are in lib/gstreamer-1.0/pkgconfig/, not lib/pkgconfig/
-      export PKG_CONFIG_PATH="${gstreamer}/lib/gstreamer-1.0/pkgconfig''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+      export PKG_CONFIG_PATH="${gstreamer.drv}/lib/gstreamer-1.0/pkgconfig''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
     '';
 
     # Install all static libraries from the build dir.
-    # cmake only installs libWPEWebKit-2.0.a — the rest (WTF, JSC, WebCore, PAL,
-    # bmalloc, Skia, xdgmime) are build intermediaries that we need for linking.
-    postInstall = pkgs.lib.optionalString static_lto ''
+    postInstall = pkgs.lib.optionalString static ''
       cp lib/*.a $out/lib/
     '';
 
@@ -367,7 +413,6 @@ GSTEOF
       webkitEngine
       pkgs.glib
       pkgs.libsoup_3
-      pkgs.nghttp2
       pkgs.libxkbcommon
       pkgs.sqlite
     ];
@@ -376,9 +421,12 @@ GSTEOF
       $CC -c engine.c -o engine.o \
         -I${pages}/include \
         $(pkg-config --cflags wpe-webkit-2.0 wpe-platform-2.0 glib-2.0 gobject-2.0 sqlite3)
+    '' + (if static then ''
       $CXX -c subprocess.cpp -o subprocess.o
       $AR rcs libengine.a engine.o subprocess.o
-    '';
+    '' else ''
+      $AR rcs libengine.a engine.o
+    '');
 
     installPhase = ''
       mkdir -p $out/lib
@@ -396,4 +444,25 @@ GSTEOF
 in {
   webkit = webkitEngine;
   inherit shim odinBindings pages;
+
+  # Full link flags for the final binary (WebKit libs + all deps + gstreamer).
+  linkFlags = builtins.concatStringsSep " " ([
+    "-Wl,--whole-archive"
+    "-L${webkitEngine}/lib"
+    "-lWPEWebKit-2.0 -lWebCore -lJavaScriptCore -lPAL -lWTF -lbmalloc -lSkia -lxdgmime"
+    "-Wl,--no-whole-archive"
+  ] ++ depFlags
+    ++ pkgs.lib.optionals (gstreamer != null) [
+    gstreamer.wholeArchiveFlags
+    gstreamer.linkFlags
+  ]);
+
+  # All pkgs needed by the final binary for nix dep tracking.
+  buildInputs = with pkgs; [
+    glib libsoup_3 harfbuzz icu libxml2 sqlite zlib libpng libjpeg
+    libwebp freetype fontconfig expat libepoxy libgcrypt libgpg-error
+    libtasn1 libxkbcommon libffi pcre2 nghttp2 libpsl brotli bzip2
+    libidn2 libunistring util-linuxMinimal
+    libxcb-image libxcb-render-util
+  ] ++ pkgs.lib.optionals (gstreamer != null) gstreamer.buildInputs;
 }

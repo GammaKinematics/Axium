@@ -240,7 +240,7 @@ widgets_init :: proc() {
 @(export)
 onix_cursor_set :: proc "c" (shape: i32) {
     context = runtime.default_context()
-    display_set_cursor(Cursor(shape))
+    display_cursor_set(Cursor(shape))
 }
 
 // ---------------------------------------------------------------------------

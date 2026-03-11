@@ -64,10 +64,18 @@ foreign engine {
     engine_context_menu_activate :: proc(action: c.int) ---
 
     engine_shutdown          :: proc() ---
+}
 
-    // Single-binary subprocess dispatch (C++ bridge)
-    axium_web_process_main     :: proc(argc: c.int, argv: [^]cstring) -> c.int ---
-    axium_network_process_main :: proc(argc: c.int, argv: [^]cstring) -> c.int ---
+// Single-binary subprocess dispatch (C++ bridge) — static builds only.
+// Dynamic builds use WebKit's own WPEWebProcess/WPENetworkProcess executables.
+STATIC :: #config(STATIC, false)
+
+when STATIC {
+    @(default_calling_convention="c")
+    foreign engine {
+        axium_web_process_main     :: proc(argc: c.int, argv: [^]cstring) -> c.int ---
+        axium_network_process_main :: proc(argc: c.int, argv: [^]cstring) -> c.int ---
+    }
 }
 
 // WebKit copy → Display-Onix

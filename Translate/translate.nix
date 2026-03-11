@@ -1,4 +1,4 @@
-{ pkgs, hostPkgs ? pkgs, translations, translation-models, static_lto ? false }:
+{ pkgs, hostPkgs ? pkgs, translations, translation-models }:
 
 let
   # Generate Odin source with model registry from Mozilla Remote Settings.
@@ -58,7 +58,6 @@ let
     buildInputs = with pkgs; [
       blis
       pcre2
-      gperftools
     ];
 
     cmakeFlags = [
@@ -69,6 +68,7 @@ let
       "-DUSE_MKL=OFF"
       "-DCOMPILE_SERVER=OFF"
       "-DUSE_FBGEMM=OFF"
+      "-DSPM_ENABLE_TCMALLOC=OFF"
       # intgemm ON (default on x86) — needed for int8 quantized models
       "-DBUILD_ARCH=x86-64"
       "-DGIT_SUBMODULE=OFF"
@@ -197,7 +197,7 @@ static inline char** backtrace_symbols(void* const*, int) { return nullptr; }'
 in {
   inherit lib;
   sources = [ ./translate.odin modelsRegistry ];
-  buildInputs = with pkgs; [ blis pcre2 gperftools ];
+  buildInputs = with pkgs; [ blis pcre2 ];
 
   # Link order matters: bergamot-translator-source -> marian -> sentencepiece -> intgemm -> system libs
   # yaml-cpp, pathie-cpp, zlib, faiss objects are baked into libmarian.a
@@ -214,7 +214,6 @@ in {
     "-lintgemm"
     "-lblis"
     "-lpcre2-8"
-    "-ltcmalloc_minimal"
     "-ldl"
     "-lpthread"
   ];

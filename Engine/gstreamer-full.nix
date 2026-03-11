@@ -7,7 +7,8 @@
 # and making GStreamer work without dlopen.
 { pkgs, hostPkgs ? pkgs, gstreamer-src }:
 
-pkgs.stdenv.mkDerivation {
+let
+  drv = pkgs.stdenv.mkDerivation {
   pname = "gstreamer-full";
   version = "1.28.1";
 
@@ -167,4 +168,26 @@ pkgs.stdenv.mkDerivation {
     homepage = "https://gstreamer.freedesktop.org/";
     platforms = [ "x86_64-linux" ];
   };
+};
+
+in {
+  inherit drv;
+
+  # Codec libs that gstreamer plugins link against — needed by final binary.
+  linkFlags = builtins.concatStringsSep " " [
+    "-L${pkgs.libogg}/lib -logg"
+    "-L${pkgs.libvorbis}/lib -lvorbis -lvorbisenc"
+    "-L${pkgs.libopus}/lib -lopus"
+    "-L${pkgs.libvpx}/lib -lvpx"
+    "-L${pkgs.openh264}/lib -lopenh264"
+    "-L${pkgs.fdk_aac}/lib -lfdk-aac"
+    "-L${pkgs.flac}/lib -lFLAC"
+    "-L${pkgs.mpg123}/lib -lmpg123"
+  ];
+
+  # Whole-archive flags for the gstreamer monolithic lib.
+  wholeArchiveFlags = "-Wl,--whole-archive $(echo ${drv}/lib/libgst*.a) $(echo ${drv}/lib/gstreamer-1.0/lib*.a) -Wl,--no-whole-archive";
+
+  # buildInputs needed by the final binary for codec link paths.
+  buildInputs = with pkgs; [ libogg libvorbis libopus libvpx openh264 fdk_aac flac mpg123 ];
 }

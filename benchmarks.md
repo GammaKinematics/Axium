@@ -348,9 +348,104 @@ clang-lib 780 MiB, LLVM-lib 479 MiB, gcc 264 MiB, python 107 MiB, etc.)
 whose store paths are embedded in the binary by the Odin compiler. These are
 not loaded at runtime.
 
-### Static+LTO Build (in progress)
+### Static+LTO Build
 
-Target: single statically linked binary with full LTO (`-O3 -march=x86-64-v3`),
-musl libc, gstreamer-full monolithic library. No shared library dependencies,
-no closure leakage. Expected to significantly reduce distribution size since
-LTO dead code elimination strips unused symbols across all libraries.
+Single statically linked binary: musl libc, full LTO (Odin + deps) + thin LTO
+(WebKit), gstreamer-full monolithic library. Zero shared library dependencies,
+zero runtime closure.
+
+| Metric | Value |
+|---|---|
+| `.axium-unwrapped` | 145 MiB |
+| Shared libraries | 0 |
+| Runtime dependencies | 0 |
+
+---
+
+## 3-Tab Benchmark: Static+LTO Build
+
+Measured 2026-03-10 on NixOS x86_64, 14 GB RAM.
+Static musl+LTO build. Single 145 MB binary, zero runtime dependencies.
+Same 3 tabs: Wikipedia article, CNN, YouTube (video playing).
+
+### Process Summary
+
+| Process | RSS | PSS | Private | Threads | FDs |
+|---|---|---|---|---|---|
+| Browser UI (Odin+LVGL) | 79 MB | 46 MB | 25 MB | 11 | 45 |
+| NetworkProcess | 68 MB | 48 MB | 41 MB | 16 | 77 |
+| WebProcess-1 (idle) | 83 MB | 43 MB | 32 MB | 10 | 26 |
+| WebProcess-2 (Wikipedia) | 175 MB | 120 MB | 97 MB | 20 | 31 |
+| WebProcess-3 (CNN) | 546 MB | 485 MB | 442 MB | 32 | 52 |
+| WebProcess-4 (YouTube) | 659 MB | 599 MB | 564 MB | 42 | 57 |
+| **Total** | **1,609 MB** | **1,341 MB** | **1,201 MB** | **131** | **288** |
+
+### Binary Code Sharing
+
+All 6 processes map the same `.axium-unwrapped` file. The kernel shares
+read-only code/data pages via the page cache — single-binary architecture
+gets shared-library-level page deduplication for free.
+
+| Process | Binary RSS | Binary PSS | Binary Private |
+|---|---|---|---|
+| Browser UI | 23 MB | 5 MB | 88 kB |
+| NetworkProcess | 27 MB | 7 MB | 72 kB |
+| WebProcess-1 | 50 MB | 11 MB | 100 kB |
+| WebProcess-2 | 65 MB | 16 MB | 104 kB |
+| WebProcess-3 | 75 MB | 21 MB | 140 kB |
+| WebProcess-4 | 77 MB | 23 MB | 148 kB |
+| **Total mapped** | **317 MB** | **84 MB** | **652 kB** |
+
+317 MB of binary pages mapped across 6 processes, true cost 84 MB (PSS).
+Only 652 kB of private dirty writes to the binary's pages total.
+
+### UI Process Breakdown (79 MB RSS, 46 MB PSS)
+
+| Mapping | RSS | PSS | Notes |
+|---|---|---|---|
+| .axium-unwrapped | 23 MB | 5 MB | Entire engine + browser (shared via page cache) |
+| WebKitSharedMemory | 28 MB | 14 MB | IPC buffers to 3 active WebProcesses |
+| [anon] heap | 26 MB | 26 MB | GLib objects, LVGL, WebKit API state |
+| SYSV SHM | 3.5 MB | 1.8 MB | X11 framebuffer |
+
+No shared libraries. No Mesa/GL. No glibc/libstdc++ .so files. Everything
+is compiled into the single binary via LTO.
+
+### JIT Memory Per WebProcess
+
+| WebProcess | JIT (rwx) | Notes |
+|---|---|---|
+| WebProcess-1 (idle) | 48 kB | PSON leftover, no JS running |
+| WebProcess-2 (Wikipedia) | 3.3 MB | Minimal JS |
+| WebProcess-3 (CNN) | 43 MB | Heavy ad/tracker scripts |
+| WebProcess-4 (YouTube) | 6.5 MB | Video player JS |
+
+### WebProcess-1 — PSON Leftover (Still Present)
+
+83 MB RSS, 43 MB PSS. Idle process from session restore: creating views
+before navigating to the restored URL triggers a PSON (Process Swap On
+Navigation) origin swap, leaving the original process alive. Same root
+cause as the dynamic build's PSON ghost. Needs smarter related-view
+handling at startup / session restore to avoid the blank-to-real-URL swap.
+
+### What Changed vs Dynamic Build
+
+| | Dynamic (post-opt) | Static LTO |
+|---|---|---|
+| **Binary** | 13 MB (.axium-unwrapped) | 145 MB (everything) |
+| **Shared libraries per WebProcess** | ~107 .so files | 0 |
+| **Mesa/GL** | eliminated | eliminated |
+| **Runtime deps (nix closure)** | 208 packages / 2.8 GiB | 0 |
+| **Code sharing mechanism** | Kernel page cache (per .so) | Kernel page cache (single binary) |
+| **PSON ghost** | fixed (deferred view creation) | still present (session restore path) |
+
+### ICF Bug (Resolved)
+
+The static build originally suffered from WebProcess infinite CPU spins on
+certain pages (github.com, wikipedia, youtube). Root cause: `--icf=all`
+(Identical Code Folding) in the LLD linker flags. ICF merges functions with
+identical machine code into a single address, breaking code that relies on
+function pointer identity — WebKit/JSC uses function pointer dispatch tables,
+vtables, and address-based comparisons extensively. `--icf=safe` also failed
+(LTO bitcode confuses address-taken analysis). Fix: removed ICF entirely.
+No measurable binary size impact (145 MB with or without).

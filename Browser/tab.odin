@@ -82,8 +82,7 @@ tab_display_text :: proc(e: ^Tab_Entry) -> string {
 tab_new :: proc(ephemeral: bool = false) {
     if tab_count >= MAX_TABS do return
     eph := ephemeral || next_tab_ephemeral
-    related: rawptr = tab_entries[0].view if tab_count > 0 && !eph else nil
-    view := engine_create_view(content_area.w, content_area.h, eph, related)
+    view := engine_create_view(content_area.w, content_area.h, eph, nil)
     if view == nil do return
 
     idx := tab_count

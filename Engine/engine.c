@@ -836,6 +836,13 @@ void engine_init_adblock(const char* adblock_dir)
     g_adblock_dir = g_strdup(adblock_dir);
 
     WebKitWebContext* ctx = webkit_web_context_get_default();
+
+    // Dynamic builds: extension .so loaded by WebKit via dlopen.
+    // Static builds: patches bypass this (direct call, no dlopen).
+    const char* ext_dir = getenv("AXIUM_EXT_DIR");
+    if (ext_dir)
+        webkit_web_context_set_web_process_extensions_directory(ctx, ext_dir);
+
     g_signal_connect(ctx, "initialize-web-process-extensions",
                      G_CALLBACK(on_initialize_web_process_extensions), NULL);
 }

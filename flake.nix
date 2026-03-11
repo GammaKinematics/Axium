@@ -4,11 +4,6 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-    webkit = {
-      url = "git+https://github.com/WebKit/WebKit?shallow=1";
-      flake = false;
-    };
-
     display-onix.url = "path:/data/Browser/Display-Onix";
     bindings-onix = {
       url = "path:/data/Browser/Bindings-Onix";
@@ -21,6 +16,16 @@
     theme-onix.url = "path:/data/Browser/Theme-Onix";
     font-onix.url = "path:/data/Browser/Font-Onix";
     edge-onix.url = "path:/data/Browser/Edge-Onix";
+
+    webkit = {
+      url = "git+https://github.com/WebKit/WebKit?shallow=1";
+      flake = false;
+    };
+
+    gstreamer-src = {
+      url = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer.git?ref=refs/tags/1.28.1&shallow=1";
+      flake = false;
+    };
 
     adblock-rust = {
       url = "git+https://github.com/brave/adblock-rust?shallow=1";
@@ -45,11 +50,6 @@
       url = "file+https://firefox.settings.services.mozilla.com/v1/buckets/main/collections/translations-models/records";
       flake = false;
     };
-
-    gstreamer-src = {
-      url = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer.git?ref=refs/tags/1.28.1&shallow=1";
-      flake = false;
-    };
   };
 
   outputs = { self, nixpkgs, webkit, display-onix, bindings-onix, lvgl-onix, theme-onix, font-onix, edge-onix, adblock-rust, uassets, ublock, translations, translation-models, gstreamer-src }:
@@ -57,273 +57,14 @@
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
 
-      # Static+LTO package set (musl + clang + full LTO).
-      # Follows the Fex pattern: useLLVM gives clang + compiler-rt + lld,
-      # crossOverlay injects -flto so all compiled code is LLVM bitcode.
-      # WebKit itself uses -DLTO_MODE=thin (too large for full LTO linking).
-      pkgsLto = import nixpkgs {
-        localSystem = system;
-        crossSystem = {
-          config = "x86_64-unknown-linux-musl";
-          isStatic = true;
-          useLLVM = true;
-        };
-        crossOverlays = [
-          (final: prev: {
-            # Plain stdenv without -flto for builds that handle LTO themselves
-            # (WebKit cmake uses -DLTO_MODE=thin).
-            stdenvNoLto = prev.stdenv;
-            # -flto so all .a files contain LLVM bitcode for the final LTO link.
-            # Deps use default -O2 from cmake/autoconf — LTO handles cross-module optimization.
-            stdenv = prev.stdenvAdapters.withCFlags [
-              "-flto"
-            ] prev.stdenv;
-          })
-          # Second overlay: globally disable checks + targeted fixes.
-          # Test binaries segfault linking bitcode .o without -flto — tests are
-          # useless in this env.
-          (final: prev: {
-            stdenv = prev.stdenv // {
-              mkDerivation = args:
-                let
-                  inject = a: a // { doCheck = false; doInstallCheck = false; };
-                in prev.stdenv.mkDerivation (
-                  if builtins.isFunction args then (finalAttrs: inject (args finalAttrs))
-                  else inject args
-                );
-            };
-            # Bash 5.3 typedef bool conflicts with clang 21 C23 default.
-            # All three bash variants are independent callPackage invocations.
-            bashNonInteractive = prev.bashNonInteractive.overrideAttrs (old: {
-              postPatch = (old.postPatch or "") + ''
-                substituteInPlace bashansi.h \
-                  --replace-fail 'typedef unsigned char bool;' \
-                    '#if __STDC_VERSION__ >= 202311L
-  #include <stdbool.h>
-#else
-  typedef unsigned char bool;
-#endif'
-              '';
-            });
-            bash = prev.bash.overrideAttrs (old: {
-              postPatch = (old.postPatch or "") + ''
-                substituteInPlace bashansi.h \
-                  --replace-fail 'typedef unsigned char bool;' \
-                    '#if __STDC_VERSION__ >= 202311L
-  #include <stdbool.h>
-#else
-  typedef unsigned char bool;
-#endif'
-              '';
-            });
-            bashInteractive = prev.bashInteractive.overrideAttrs (old: {
-              postPatch = (old.postPatch or "") + ''
-                substituteInPlace bashansi.h \
-                  --replace-fail 'typedef unsigned char bool;' \
-                    '#if __STDC_VERSION__ >= 202311L
-  #include <stdbool.h>
-#else
-  typedef unsigned char bool;
-#endif'
-              '';
-            });
-            # glib's meson runs cc.run() checks during configure (frexpl, printf).
-            # With -flto, some test binaries crash (bitcode issues). Tell meson
-            # it can't run host binaries — the gnulib fallback correctly assumes
-            # frexpl/printf work on linux.
-            glib = prev.glib.overrideAttrs (old: {
-              preConfigure = (old.preConfigure or "") + ''
-                cat > no-exe-wrapper.txt <<'EOF'
-[properties]
-needs_exe_wrapper = true
-EOF
-                mesonFlagsArray+=(--cross-file="$PWD/no-exe-wrapper.txt")
-              '';
-            });
-            # Go segfaults during bootstrap in cross/LTO env — skip it, we don't need captree
-            libcap = prev.libcap.override { withGo = false; };
-            # wayland tools not needed, pulls unnecessary deps
-            libxkbcommon = prev.libxkbcommon.override { withWaylandTools = false; };
-            # blis uses a custom (non-autotools) configure:
-            # - no --build/--host (not autotools)
-            # - x86_64 must be the LAST arg (positional confname) — nix's auto-appended
-            #   --enable-static --disable-shared go after it and break parsing
-            blis = prev.blis.overrideAttrs {
-              configurePlatforms = [];
-              dontAddStaticConfigureFlags = true;
-              configureFlags = [
-                "--enable-cblas" "--blas-int-size=32" "--enable-threading=pthreads"
-                "--enable-static" "--disable-shared"
-                "x86_64"
-              ];
-              postInstall = ""; # nixpkgs creates .so symlinks — no .so in static build
-              # clang 21 dropped -mavx512pf/-mavx512er (Knights Landing / Xeon Phi — dead hardware)
-              postPatch = ''
-                patchShebangs configure build/flatten-headers.py
-                substituteInPlace config_registry \
-                  --replace-warn 'skx knl haswell' 'skx haswell'
-              '';
-            };
-            # llvm-strip can't handle LLVM bitcode .o — libvpx Makefile runs $(STRIP) itself
-            libvpx = prev.libvpx.overrideAttrs { env.STRIP = "true"; };
-            # libepoxy: WebKit unconditionally requires it, but GL is never used at runtime.
-            # Disable x11Support to drop libglvnd (can't build statically), libGL, libX11.
-            # But WPEPlatform unconditionally needs epoxy/egl.h — re-enable EGL via a
-            # stub that provides headers + pkg-config without the real libglvnd.
-            eglStub = prev.stdenv.mkDerivation {
-              name = "egl-stub";
-              dontUnpack = true;
-              buildPhase = ''
-                mkdir -p $out/include/EGL $out/include/KHR $out/lib/pkgconfig
-                cp ${prev.buildPackages.libglvnd.dev}/include/EGL/*.h $out/include/EGL/
-                cp ${prev.buildPackages.libglvnd.dev}/include/KHR/*.h $out/include/KHR/
-                $AR rcs $out/lib/libEGL.a
-                cat > $out/lib/pkgconfig/egl.pc << EOF
-prefix=$out
-includedir=$out/include
-libdir=$out/lib
-Name: egl
-Description: EGL headers stub for static build
-Version: 1.5
-Cflags: -I$out/include
-Libs: -L$out/lib
-EOF
-              '';
-              installPhase = "true";
-            };
-            libepoxy = (prev.libepoxy.override { x11Support = false; }).overrideAttrs (old: {
-              buildInputs = (old.buildInputs or []) ++ [ final.eglStub ];
-              propagatedBuildInputs = (old.propagatedBuildInputs or []) ++ [ final.eglStub ];
-              mesonFlags = builtins.map (f:
-                if f == "-Degl=no" then "-Degl=yes" else f
-              ) old.mesonFlags;
-              postPatch = (old.postPatch or "") + ''
-                # Axium: static musl has no dlopen/dlsym. Patch epoxy so
-                # unresolved GL/EGL functions return a stub (returns 0)
-                # instead of aborting.
+      pkgsLto = import ./cross.nix { inherit nixpkgs system; };
 
-                # dispatch_common.c: neuter abort() in dlopen failure path
-                substituteInPlace src/dispatch_common.c \
-                  --replace-fail 'abort();' '(void)0;'
+      # ─── Configuration ───
 
-                # dispatch_common.h: static stub that all resolvers can return
-                substituteInPlace src/dispatch_common.h \
-                  --replace-fail \
-                    'extern epoxy_resolver_failure_handler_t epoxy_resolver_failure_handler;' \
-                    'extern epoxy_resolver_failure_handler_t epoxy_resolver_failure_handler;
-static inline long epoxy_static_stub_(void) { return 0; }'
+      backends = ["x11"];   # display server backends: "x11", "wayland"
+      gpu = true;           # GPU compositing (EGL/GL)
 
-                # gen_dispatch.py: wrap provider condition in braces
-                substituteInPlace src/gen_dispatch.py \
-                  --replace-fail \
-                    "self.outln('            if ({0})'.format(self.provider_condition[human_name]))" \
-                    "self.outln('            if ({0}) {{'.format(self.provider_condition[human_name]))"
-
-                # gen_dispatch.py: NULL-check loader return, add closing brace
-                substituteInPlace src/gen_dispatch.py \
-                  --replace-fail \
-                    "self.outln('                return {0};'.format(self.provider_loader[human_name]).format(\"entrypoint_strings + entrypoints[i]\"))
-            self.outln('            break;')" \
-                    "self.outln('                void *_r = (void *){0};'.format(self.provider_loader[human_name]).format(\"entrypoint_strings + entrypoints[i]\"))
-            self.outln('                if (_r) return _r;')
-            self.outln('            }')
-            self.outln('            break;')"
-
-                # gen_dispatch.py: terminator abort -> break
-                substituteInPlace src/gen_dispatch.py \
-                  --replace-fail \
-                    "self.outln('            abort(); /* Not reached */')" \
-                    "self.outln('            break;')"
-
-                # gen_dispatch.py: remove handler check (LTO splits the global)
-                substituteInPlace src/gen_dispatch.py \
-                  --replace-fail \
-                    "        self.outln('    if (epoxy_resolver_failure_handler)')
-        self.outln('        return epoxy_resolver_failure_handler(name);')" \
-                    ""
-
-                # gen_dispatch.py: final abort -> return stub
-                substituteInPlace src/gen_dispatch.py \
-                  --replace-fail \
-                    "self.outln('    abort();')" \
-                    "self.outln('    return (void *)epoxy_static_stub_;')"
-
-                echo "=== gen_dispatch.py patched resolver (lines 710-755) ==="
-                sed -n '710,755p' src/gen_dispatch.py
-              '';
-            });
-            # Axium: glib-networking static TLS backend.
-            # GIO loads TLS backends (gnutls) via dlopen of .so modules.
-            # On static musl, dlopen is stubbed → no TLS backend registers →
-            # g_tls_backend_get_default() returns GDummyTlsBackend → HTTPS dead.
-            # Fix: build as static lib, link into binary, register directly.
-            glib-networking = (prev.glib-networking.override {
-              libproxy = null;
-              gsettings-desktop-schemas = prev.gsettings-desktop-schemas;
-            }).overrideAttrs (old: {
-              buildInputs = builtins.filter (x: x != null) (old.buildInputs or []);
-              mesonFlags = (old.mesonFlags or []) ++ [
-                "-Ddefault_library=static"
-                "-Dinstalled_tests=false"
-                "-Dlibproxy=disabled"
-                "-Dgnome_proxy=disabled"
-                "-Dopenssl=disabled"
-              ];
-              # G_DEFINE_DYNAMIC_TYPE needs a GTypeModule — NULL won't work.
-              # Switch to static type registration so get_type() works without a module.
-              postPatch = (old.postPatch or "") + ''
-                substituteInPlace tls/gnutls/gtlsbackend-gnutls.c \
-                  --replace-fail 'G_DEFINE_DYNAMIC_TYPE_EXTENDED' 'G_DEFINE_FINAL_TYPE_WITH_CODE' \
-                  --replace-fail 'G_TYPE_OBJECT, G_TYPE_FLAG_FINAL,' 'G_TYPE_OBJECT,' \
-                  --replace-fail 'G_IMPLEMENT_INTERFACE_DYNAMIC' 'G_IMPLEMENT_INTERFACE' \
-                  --replace-fail 'g_tls_backend_gnutls_register_type (G_TYPE_MODULE (module))' 'g_tls_backend_gnutls_get_type ()'
-              '';
-              preFixup = (old.preFixup or "") + ''
-                mkdir -p $out/libexec $installedTests/libexec
-              '';
-              meta = old.meta // { badPlatforms = []; };
-            });
-            # mpg123: only need decoder lib, not audio output backends
-            mpg123 = prev.mpg123.override { withPulse = false; withJack = false; withAlsa = false; withConplay = false; libOnly = true; };
-            # gnutls: doc/errcodes is a build-time binary that segfaults under LTO
-            # (LLVM bitcode can't run natively). Disable doc generation.
-            gnutls = prev.gnutls.overrideAttrs (old: {
-              configureFlags = (old.configureFlags or []) ++ [
-                "--disable-doc"
-                "--with-default-trust-store-file=/etc/ssl/certs/ca-certificates.crt"
-              ];
-              postInstall = (old.postInstall or "") + ''
-                mkdir -p $devdoc $man
-              '';
-            });
-            # gen-lock-obj.sh fails with LTO: clang -flto produces LLVM bitcode objects,
-            # objdump can't read .bss section to determine pthread_mutex_t size, producing
-            # a broken lock-obj header. Use the correct pre-generated file for musl.
-            libgpg-error = prev.libgpg-error.overrideAttrs (old: {
-              postConfigure = (old.postConfigure or "") + ''
-                cp src/syscfg/lock-obj-pub.x86_64-unknown-linux-musl.h src/lock-obj-pub.native.h
-              '';
-            });
-            # jitterentropy requires -O0 but our LTO flags in NIX_CFLAGS_COMPILE override it.
-            # Jitter RNG is supplementary — /dev/urandom is the primary entropy source.
-            libgcrypt = prev.libgcrypt.overrideAttrs (old: {
-              configureFlags = (old.configureFlags or []) ++ [ "--disable-jent-support" ];
-            });
-            # freetype: LLVM cross toolchain exposes windres, which configure detects
-            # and then tries to compile ftver.rc (Windows resource) — fails on Linux.
-            # Setting RC="" before configure prevents detection. depsBuildBuild provides
-            # a native CC that configure needs for build-time tools in cross mode.
-            freetype = prev.freetype.overrideAttrs (old: {
-              depsBuildBuild = (old.depsBuildBuild or []) ++ [ prev.buildPackages.stdenv.cc ];
-              preConfigure = (old.preConfigure or "") + ''
-                export RC=""
-              '';
-            });
-          })
-        ];
-      };
-
-      # ─── Static-independent values ───
+      # ─── Shared (same for all build variants) ───
 
       pages = import ./Pages/pages.nix { inherit pkgs; };
 
@@ -376,96 +117,87 @@ static inline long epoxy_static_stub_(void) { return 0; }'
 
       edgeSources = edge-onix.lib.sources;
 
-      # ─── Dynamic build (default, unchanged) ───
+      # ─── Parametric build ───
 
-      engine = import ./Engine/engine.nix {
-        inherit pkgs webkit pages;
-      };
+      mkBuild = { static ? false }:
+        let
+          buildPkgs = if static then pkgsLto else pkgs;
+          hostPkgs = pkgs;
+          needsDetour = gpu && static;
 
-      lvgl = lvgl-onix.lib.mkLvgl {
-        hostPkgs = pkgs;
-        inherit pkgs;
-        widgets = ["button" "label" "textarea" "arc"];
-      };
+          gstreamer = if static then import ./Engine/gstreamer-full.nix {
+            pkgs = buildPkgs; inherit hostPkgs gstreamer-src;
+          } else null;
 
-      themeOdin = theme-onix.lib.generate {
-        package = "axium";
-        theme = lvgl.passthru.theme;
-      };
+          engine = import ./Engine/engine.nix {
+            pkgs = buildPkgs;
+            inherit hostPkgs webkit pages static;
+            gstreamer = if static then gstreamer else null;
+          };
 
-      adblock = import ./Adblock/adblock.nix { inherit pkgs adblock-rust engine uassets ublock; };
+          lvgl = lvgl-onix.lib.mkLvgl {
+            pkgs = buildPkgs;
+            inherit hostPkgs gpu static;
+            widgets = ["button" "label" "textarea" "arc"];
+          };
 
-      keepass = import ./Keepass/keepass.nix { inherit pkgs; };
+          themeOdin = theme-onix.lib.generate {
+            package = "axium";
+            theme = lvgl.theme;
+          };
 
-      translate = import ./Translate/translate.nix { inherit pkgs translations translation-models; };
+          adblock = import ./Adblock/adblock.nix {
+            pkgs = buildPkgs;
+            inherit hostPkgs adblock-rust engine uassets ublock static;
+          };
 
-      # ─── Static+LTO build ───
+          keepass = import ./Keepass/keepass.nix { pkgs = buildPkgs; };
 
-      sGstreamer = import ./Engine/gstreamer-full.nix {
-        pkgs = pkgsLto; hostPkgs = pkgs;
-        inherit gstreamer-src;
-      };
+          translate = import ./Translate/translate.nix {
+            pkgs = buildPkgs;
+            inherit hostPkgs translations translation-models;
+          };
 
-      sEngine = import ./Engine/engine.nix {
-        pkgs = pkgsLto; hostPkgs = pkgs;
-        inherit webkit pages;
-        gstreamer = sGstreamer;
-        static_lto = true;
-      };
+          display = display-onix.lib.mkDisplay {
+            package = "axium";
+            pkgs = buildPkgs;
+            inherit backends gpu;
+            detour = needsDetour;
+          };
 
-      sLvgl = lvgl-onix.lib.mkLvgl {
-        hostPkgs = pkgs;
-        pkgs = pkgsLto;
-        lto = true;
-        widgets = ["button" "label" "textarea" "arc"];
-      };
+          detour = if needsDetour then display-onix.lib.mkDetour {
+            inherit hostPkgs;
+            pkgs = buildPkgs;
+            lto = static;
+          } else null;
 
-      sTranslate = import ./Translate/translate.nix {
-        pkgs = pkgsLto; hostPkgs = pkgs;
-        inherit translations translation-models;
-        static_lto = true;
-      };
+        in {
+          browser = import ./Browser/browser.nix {
+            pkgs = buildPkgs;
+            inherit hostPkgs engine pages generatedBindings
+                    lvgl lvglBindings themeOdin fontSources iconFont edgeSources
+                    adblock keepass translate
+                    display detour static;
+          };
+          inherit engine lvgl adblock keepass translate gstreamer display detour;
+        };
 
-      sAdblock = import ./Adblock/adblock.nix {
-        pkgs = pkgsLto; hostPkgs = pkgs;
-        inherit adblock-rust uassets ublock;
-        engine = sEngine;
-        static_lto = true;
-      };
-
-      sKeepass = import ./Keepass/keepass.nix { pkgs = pkgsLto; };
+      dynamicBuild = mkBuild {};
+      staticBuild = mkBuild { static = true; };
 
     in {
       packages.${system} = rec {
-        inherit (adblock) lib resources;
-        inherit (engine) webkit shim pages;
-        static-webkit = sEngine.webkit;
-        static-adblock-lib = sAdblock.lib;
-        static-gstreamer = sGstreamer;
-        translate-lib = translate.lib;
+        dynamic = dynamicBuild.browser;
+        static = staticBuild.browser;
+        default = dynamic;
 
-        browser = import ./Browser/browser.nix {
-          inherit pkgs engine pages display-onix generatedBindings
-                  lvgl lvglBindings themeOdin fontSources iconFont edgeSources
-                  adblock keepass translate;
-        };
-
-        static = import ./Browser/browser.nix {
-          pkgs = pkgsLto;
-          hostPkgs = pkgs;
-          engine = sEngine;
-          gstreamer = sGstreamer;
-          inherit pages display-onix generatedBindings
-                  lvglBindings fontSources iconFont edgeSources
-                  themeOdin;
-          adblock = sAdblock;
-          lvgl = sLvgl;
-          keepass = sKeepass;
-          translate = sTranslate;
-          static_lto = true;
-        };
-
-        default = browser;
+        # Debug outputs
+        inherit (dynamicBuild.engine) webkit shim pages;
+        inherit (dynamicBuild.adblock) lib resources;
+        translate-lib = dynamicBuild.translate.lib;
+        static-webkit = staticBuild.engine.webkit;
+        static-adblock-lib = staticBuild.adblock.lib;
+        static-gstreamer = staticBuild.gstreamer.drv;
       };
 
       devShells.${system}.default = pkgs.mkShell {
@@ -477,7 +209,7 @@ static inline long epoxy_static_stub_(void) { return 0; }'
           pkg-config cmake ninja meson
           nix-tree nix-diff
         ];
-        inputsFrom = [ engine.webkit ];
+        inputsFrom = [ dynamicBuild.engine.webkit ];
       };
     };
 }

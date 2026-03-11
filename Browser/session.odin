@@ -49,7 +49,7 @@ session_restore :: proc() -> bool {
         url := tabs_arr[i].(json.String) or_else ""
         if url == "" do continue
         if tab_count >= MAX_TABS do break
-        view := engine_create_view(content_area.w, content_area.h, false, first_view)
+        view := engine_create_view(content_area.w, content_area.h, false, nil)
         if view == nil do continue
         idx := tab_count
         tab_entries[idx] = Tab_Entry{ view = view }

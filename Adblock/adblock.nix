@@ -1,11 +1,11 @@
-{ pkgs, hostPkgs ? pkgs, adblock-rust, engine, uassets, ublock, static_lto ? false }:
+{ pkgs, hostPkgs ? pkgs, adblock-rust, engine, uassets, ublock, static ? false }:
 
 let
   webkitEngine = engine.webkit;
 
   # For static builds, use cross pkgs' rustPlatform so cargoBuildHook
   # targets x86_64-unknown-linux-musl (matching the musl stdenv).
-  rustPlatform = if static_lto then pkgs.rustPlatform else hostPkgs.rustPlatform;
+  rustPlatform = if static then pkgs.rustPlatform else hostPkgs.rustPlatform;
 
   lib = rustPlatform.buildRustPackage {
     pname = "axium-adblock";
@@ -47,7 +47,7 @@ let
       adblock = { path = "..", features = ["resource-assembler"] }
       serde_json = "1"
       EOF
-    '' + hostPkgs.lib.optionalString static_lto ''
+    '' + hostPkgs.lib.optionalString static ''
       # LTO build: Rust-internal LTO + abort on panic (no unwinding across FFI)
       cat >> $sourceRoot/ffi/Cargo.toml << 'EOF'
 
@@ -74,8 +74,8 @@ let
     };
   };
 
-  # Compile adblock.c to .o — linked into the browser binary directly
-  # (no dlopen, no .so extension; WebKit patched for direct init call)
+  # Static: compile adblock.c to .o (linked into binary, WebKit patched for direct init)
+  # Dynamic: compile adblock.c to .so (WebKit loads via dlopen)
   ext = pkgs.stdenv.mkDerivation {
     pname = "axium-adblock-ext";
     version = "0.1.0";
@@ -91,14 +91,21 @@ let
       pkgs.nghttp2
     ];
 
-    buildPhase = ''
+    buildPhase = if static then ''
       $CC -c -o adblock.o adblock.c \
         $(pkg-config --cflags wpe-web-process-extension-2.0 glib-2.0)
+    '' else ''
+      $CC -shared -fPIC -o libaxium-adblock-ext.so adblock.c \
+        $(pkg-config --cflags --libs wpe-web-process-extension-2.0 glib-2.0) \
+        -L${lib}/lib -laxium_adblock -lpthread -ldl
     '';
 
-    installPhase = ''
+    installPhase = if static then ''
       mkdir -p $out/lib
       cp adblock.o $out/lib/
+    '' else ''
+      mkdir -p $out/lib
+      cp libaxium-adblock-ext.so $out/lib/
     '';
 
     meta = {
@@ -166,11 +173,11 @@ in {
   inherit lib ext resources;
   sources = [];
 
-  linkFlags = builtins.concatStringsSep " " [
+  linkFlags = if static then builtins.concatStringsSep " " [
     "${ext}/lib/adblock.o"
     "-L${lib}/lib"
     "-laxium_adblock"
-  ];
+  ] else "";
 
   buildInputs = [];
 }

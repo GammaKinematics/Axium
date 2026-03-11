@@ -24,9 +24,10 @@ flush_cb :: proc "c" (disp: ^lv_display_t, area: ^lv_area_t, px: [^]u8) {
 }
 
 main :: proc() {
-    // Single-binary dispatch: WPEWebProcess/WPENetworkProcess are symlinks to axium.
-    // When WebKit spawns a subprocess, argv[0] is the symlink name.
-    {
+    // Static builds: single-binary dispatch. WPEWebProcess/WPENetworkProcess are
+    // symlinks to axium — argv[0] determines which subprocess entry point to run.
+    // Dynamic builds: WebKit's own executables handle subprocesses.
+    when STATIC {
         args := runtime.args__
         if len(args) > 0 {
             prog := string(args[0])
@@ -220,7 +221,7 @@ main :: proc() {
         // Update cursor if WebKit changed it
         cursor := engine_get_cursor()
         if cursor >= 0 {
-            display_set_cursor(Cursor(cursor))
+            display_cursor_set(Cursor(cursor))
         }
 
         display_present()
