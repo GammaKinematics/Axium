@@ -99,20 +99,20 @@ let
       substituteInPlace Source/WebKit/WebProcess/InjectedBundle/glib/InjectedBundleGlib.cpp \
         --replace-fail \
           '    m_platformBundle = g_module_open(FileSystem::fileSystemRepresentation(m_path).data(), G_MODULE_BIND_LOCAL);
-          if (!m_platformBundle) {
-              g_warning("Error loading the injected bundle (%s): %s", m_path.utf8().data(), g_module_error());
-              return false;
-          }
+    if (!m_platformBundle) {
+        g_warning("Error loading the injected bundle (%s): %s", m_path.utf8().data(), g_module_error());
+        return false;
+    }
 
-          WKBundleInitializeFunctionPtr initializeFunction = 0;
-          if (!g_module_symbol(m_platformBundle, "WKBundleInitialize", reinterpret_cast<void**>(&initializeFunction)) || !initializeFunction) {
-              g_warning("Error loading WKBundleInitialize symbol from injected bundle.");
-              return false;
-          }
+    WKBundleInitializeFunctionPtr initializeFunction = 0;
+    if (!g_module_symbol(m_platformBundle, "WKBundleInitialize", reinterpret_cast<void**>(&initializeFunction)) || !initializeFunction) {
+        g_warning("Error loading WKBundleInitialize symbol from injected bundle.");
+        return false;
+    }
 
-          initializeFunction(toAPI(this), toAPI(initializationUserData.get()));' \
+    initializeFunction(toAPI(this), toAPI(initializationUserData.get()));' \
           '    // Axium: call extension manager directly — no dlopen.
-          WebProcessExtensionManager::singleton().initialize(this, initializationUserData.get());'
+    WebProcessExtensionManager::singleton().initialize(this, initializationUserData.get());'
       # Add required include for WebProcessExtensionManager
       substituteInPlace Source/WebKit/WebProcess/InjectedBundle/glib/InjectedBundleGlib.cpp \
         --replace-fail '#include "WKBundleInitialize.h"' '#include "WebProcessExtensionManager.h"'
