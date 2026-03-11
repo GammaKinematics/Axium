@@ -227,7 +227,7 @@ GSTEOF
 
       libepoxy
 
-    ] ++ (if static then [ gstreamer.drv ] ++ gstreamer.buildInputs else with pkgs; [
+    ]) ++ (if static then [ gstreamer.drv ] ++ gstreamer.buildInputs else with pkgs; [
       # GStreamer (video/audio playback) — nixpkgs packages for dynamic build
       gst_all_1.gstreamer
       gst_all_1.gst-plugins-base
