@@ -239,7 +239,8 @@ GSTEOF
     ]) ++ pkgs.lib.optionals gpu (with pkgs; [
       # GPU compositing: GBM (DMA-BUF buffer sharing) + libdrm (kernel DRM ioctls)
       libdrm
-      mesa       # provides gbm.pc / libgbm
+      libgbm
+      mesa
     ]);
 
     cmakeFlags = [
@@ -459,6 +460,6 @@ in {
     libtasn1 libxkbcommon libffi pcre2 nghttp2 libpsl brotli bzip2
     libidn2 libunistring util-linuxMinimal
   ] ++ [ hb ]
-    ++ pkgs.lib.optionals gpu (with pkgs; [ libdrm mesa ])
+    ++ pkgs.lib.optionals gpu (with pkgs; [ libdrm libgbm mesa ])
     ++ pkgs.lib.optionals (gstreamer != null) gstreamer.buildInputs;
 }
