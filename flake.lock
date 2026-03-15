@@ -55,8 +55,8 @@
         "detour-src": "detour-src"
       },
       "locked": {
-        "lastModified": 1773178499,
-        "narHash": "sha256-JMYk4wC2pxOrfzFPDDjKvBNjLpin1kXkoUwNaavk5ww=",
+        "lastModified": 1773271690,
+        "narHash": "sha256-3JDOwyrVvyQpNGDXUNgbgRknicaHTwRvCh0zw8pRxM8=",
         "path": "/data/Browser/Display-Onix",
         "type": "path"
       },
@@ -115,8 +115,8 @@
         ]
       },
       "locked": {
-        "lastModified": 1773174136,
-        "narHash": "sha256-oe1E9nZM04nb91YL8le+i6Dx2xAOU9jDjRB5Lm7zkeQ=",
+        "lastModified": 1773269685,
+        "narHash": "sha256-mCBustGsB3X4/UEqCkoQWrRkRQOaGS2ggFeurzPKKnw=",
         "path": "/data/Browser/LVGL-Onix",
         "type": "path"
       },

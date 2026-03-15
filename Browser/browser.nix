@@ -1,7 +1,7 @@
 { pkgs, hostPkgs ? pkgs, engine, pages, display, generatedBindings
 , lvgl, lvglBindings, themeOdin, fontSources, iconFont, edgeSources
-, adblock, keepass, translate
-, static ? false, detour ? null
+, adblock
+, static ? false, detour ? null, gpu ? false
 }:
 
 let
@@ -35,7 +35,8 @@ pkgs.stdenv.mkDerivation {
     pkgs.libsoup_3
     pkgs.libxkbcommon
     pkgs.sqlite
-  ] ++ display.buildInputs ++ lvgl.buildInputs ++ keepass.buildInputs ++ translate.buildInputs
+  ] ++ display.buildInputs ++ lvgl.buildInputs
+    ++ pkgs.lib.optionals gpu [ pkgs.libdrm ]
     ++ pkgs.lib.optionals (detour != null) [ detour ]
     ++ pkgs.lib.optionals static (engine.buildInputs ++ [
       pkgs.libseccomp
@@ -62,18 +63,8 @@ pkgs.stdenv.mkDerivation {
       cp "$f" ./
     done
 
-    # Copy keepass sources
-    for f in ${builtins.concatStringsSep " " keepass.sources}; do
-      cp "$f" ./
-    done
-
     # Copy adblock sources
     for f in ${builtins.concatStringsSep " " adblock.sources}; do
-      cp "$f" ./
-    done
-
-    # Copy translate sources
-    for f in ${builtins.concatStringsSep " " translate.sources}; do
       cp "$f" ./
     done
 
@@ -95,6 +86,7 @@ pkgs.stdenv.mkDerivation {
       \
       --sysroot=${musl} --rtlib=compiler-rt --unwindlib=libunwind \
       -Wl,--strip-all -Wl,--gc-sections -Wl,--allow-multiple-definition -Wl,-z,noexecstack \
+      -Wl,--export-dynamic-symbol-list=export_syms.ld \
       -o axium axium.bc \
       ${engine.shim}/lib/libengine.a \
       -Wl,--whole-archive ${pages}/lib/libpages.a -Wl,--no-whole-archive \
@@ -103,8 +95,6 @@ pkgs.stdenv.mkDerivation {
       ${if detour != null then detour.linkFlags else ""} \
       ${lvgl.drv}/lib/liblvgl.a \
       ${lvgl.linkFlags} \
-      ${keepass.linkFlags} \
-      ${translate.linkFlags} \
       ${adblock.linkFlags} \
       -L${pkgs.libseccomp}/lib -lseccomp \
       -L${pkgs.glib-networking}/lib/gio/modules -lgiognutls \
@@ -122,11 +112,10 @@ pkgs.stdenv.mkDerivation {
         -L${lvgl.drv}/lib -llvgl \
         ${lvgl.linkFlags} \
         $(pkg-config --libs wpe-webkit-2.0 wpe-platform-2.0 glib-2.0 gobject-2.0) \
-        ${keepass.linkFlags} \
-        ${translate.linkFlags} \
         ${adblock.linkFlags} \
         -Wl,--whole-archive -lpages -Wl,--no-whole-archive \
-        -lsqlite3 -lm -lstdc++"
+        -Wl,--export-dynamic-symbol-list=export_syms.ld \
+        -lsqlite3 -lm -lstdc++ ${pkgs.lib.optionalString gpu "-ldrm"}"
   '');
 
   installPhase = ''
@@ -144,7 +133,7 @@ export WEBKIT_EXEC_PATH="$(dirname "$0")"
 '' else ''
 export GIO_EXTRA_MODULES=${pkgs.glib-networking}/lib/gio/modules
 export GIO_USE_TLS=gnutls
-export GST_PLUGIN_PATH=${pkgs.gst_all_1.gst-plugins-base}/lib/gstreamer-1.0:${pkgs.gst_all_1.gst-plugins-good}/lib/gstreamer-1.0
+export GST_PLUGIN_PATH=${pkgs.gst_all_1.gst-plugins-base}/lib/gstreamer-1.0:${pkgs.gst_all_1.gst-plugins-good}/lib/gstreamer-1.0:${pkgs.gst_all_1.gst-plugins-bad}/lib/gstreamer-1.0
 export AXIUM_EXT_DIR=${adblock.ext}/lib
 ''}
 export SSL_CERT_FILE=${hostPkgs.cacert}/etc/ssl/certs/ca-bundle.crt

@@ -21,17 +21,13 @@
         "Ctrl_L+N7": "tab_select 6"
         "Ctrl_L+N8": "tab_select 7"
         "Ctrl_L+N9": "tab_select 8"
-        "Ctrl_L+K": "keepass"
-        "Ctrl_L+Shift_L+T": "translate"
-        "Ctrl_L+Shift_L+D": "translate_toggle"
-        "Ctrl_L+Shift_L+E": "translate_toggle_theme"
-        "Ctrl_L+Shift_L+B": "translate_block"
         "Ctrl_L+Shift_L+A": "adblock"
         "Ctrl_L+D": "favorites"
         "Ctrl_L+H": "history"
         "Ctrl_L+J": "downloads"
         "Ctrl_L+Comma": "settings"
     }
+    language: "en"
     restore: true
     download_dir: "~/Downloads"
     font: {
@@ -47,18 +43,6 @@
     //     // forward: "F054"
     //     // reload: "F021"
     // }
-    translate: {
-        target: "en"
-        // display: "dual" | "translation" | "hover"
-        display: "dual"
-        // theme: "default" | "underline" | "highlight" | "mask"
-        // theme: "default"
-        // Optional: server-side translation (omit for local bergamot)
-        // server: { type: "deepl"  key: "your-api-key" }
-        // Supported types: "deepl", "libretranslate", "google"
-        // Optional "url" overrides the default API endpoint
-        auto_translate: []
-    }
     theme: {
         bg_prim: "#15171a"
         bg_sec: "#282b30"
@@ -73,6 +57,9 @@
         bg_opacity: 255
         web_bg_opacity: false
     }
+    trusted_pubkeys: [
+        "7f2ec2f50b97cc25a43c9cc01dfe24f4ea23a3b2c1425f81581e72874833112b"
+    ]
     context_menu: ["link" "content" "media" "edit" "text" "nav"]
     edges: {
         hover_distance: 5
@@ -85,7 +72,7 @@
             {
                 show: "always"
                 overlay: false
-                widgets: ["back" "forward" "reload" "separator" "favorites" "url" "copy" "separator" "keepass" "translate" "downloads" "settings"]
+                widgets: ["back" "forward" "reload" "separator" "favorites" "url" "copy" "separator" "downloads" "settings"]
             }
         ]
     }

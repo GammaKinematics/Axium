@@ -132,7 +132,7 @@
           engine = import ./Engine/engine.nix {
             pkgs = buildPkgs;
             inherit hostPkgs webkit pages static;
-            gpu = if static then false else gpu;
+            gpu = gpu;
             gstreamer = if static then gstreamer else null;
           };
 
@@ -150,13 +150,6 @@
           adblock = import ./Adblock/adblock.nix {
             pkgs = buildPkgs;
             inherit hostPkgs adblock-rust engine uassets ublock static;
-          };
-
-          keepass = import ./Keepass/keepass.nix { pkgs = buildPkgs; };
-
-          translate = import ./Translate/translate.nix {
-            pkgs = buildPkgs;
-            inherit hostPkgs translations translation-models;
           };
 
           display = display-onix.lib.mkDisplay {
@@ -177,10 +170,10 @@
             pkgs = buildPkgs;
             inherit hostPkgs engine pages generatedBindings
                     lvgl lvglBindings themeOdin fontSources iconFont edgeSources
-                    adblock keepass translate
-                    display detour static;
+                    adblock
+                    display detour static gpu;
           };
-          inherit engine lvgl adblock keepass translate gstreamer display detour;
+          inherit engine lvgl adblock gstreamer display detour;
         };
 
       dynamicBuild = mkBuild {};
@@ -196,7 +189,6 @@
         inherit (dynamicBuild.engine) shim pages;
         dynamic-webkit = dynamicBuild.engine.webkit;
         inherit (dynamicBuild.adblock) lib resources;
-        translate-lib = dynamicBuild.translate.lib;
         static-webkit = staticBuild.engine.webkit;
         static-adblock-lib = staticBuild.adblock.lib;
         static-gstreamer = staticBuild.gstreamer.drv;

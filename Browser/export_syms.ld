@@ -1,0 +1,11 @@
+lv_*
+popup_*
+engine_*
+theme_*
+tab_*
+xdg_path
+extension_*
+register_poll_fd
+unregister_poll_fd
+register_command
+active_tab

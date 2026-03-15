@@ -1,11 +1,12 @@
 package axium
 
+import "core:encoding/hex"
+import "core:encoding/json"
 import "core:os"
 import "core:reflect"
 import "core:strconv"
 import "core:strings"
 import "core:unicode/utf8"
-import "core:encoding/json"
 
 XDG_Dir :: enum { Config, Data, State }
 
@@ -28,6 +29,8 @@ CONFIG_PATH :: #config(CONFIG_PATH, "")
 BUNDLED_CONFIG :: #load("config.sjson")
 
 web_bg_opacity: bool
+ext_trusted_pubkeys: [dynamic][32]u8
+language: string
 
 // Font config
 font_name: string
@@ -74,8 +77,8 @@ apply_config :: proc(data: []u8) {
         }
     }
     edge_parse_config(root["edges"].(json.Object) or_else nil)
-    translate_parse_config(root["translate"].(json.Object) or_else nil)
 
+    if v, vok := root["language"].(json.String); vok do language = strings.clone(v)
     if v, vok := root["restore"].(json.Boolean); vok do session_enabled = v
     if v, vok := root["download_dir"].(json.String); vok do download_dir = strings.clone(v)
 
@@ -95,6 +98,20 @@ apply_config :: proc(data: []u8) {
             ctx_menu_layout = layout[:]
         } else {
             delete(layout)
+        }
+    }
+
+    if arr, aok := root["trusted_pubkeys"].(json.Array); aok {
+        for item in arr {
+            if hex_str, sok := item.(json.String); sok {
+                decoded, dok := hex.decode(transmute([]u8)hex_str)
+                if dok == nil && len(decoded) == 32 {
+                    key: [32]u8
+                    copy(key[:], decoded)
+                    append(&ext_trusted_pubkeys, key)
+                    delete(decoded)
+                }
+            }
         }
     }
 }

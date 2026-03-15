@@ -3,6 +3,12 @@ package axium
 import "core:strings"
 import "core:strconv"
 
+command_registry: map[string]proc()
+
+register_command :: proc(name: string, callback: proc()) {
+    command_registry[name] = callback
+}
+
 // --- Shell clipboard: paste into LVGL textarea when chrome has focus ---
 
 shell_paste :: proc() {
@@ -48,15 +54,16 @@ execute_command :: proc(cmd: string, pressed: bool = true) {
     case "tab_prev":    if pressed do tab_prev()
     case "adblock":     if pressed do adblock_toggle()
     case "settings":    if pressed do settings_trigger()
-    case "keepass":     if pressed do keepass_trigger()
     case "favorites":   if pressed do favorite_trigger()
     case "history":     if pressed do engine_view_go_to(tab_entries[active_tab].view, "axium://history")
     case "downloads":   if pressed do download_trigger()
-    case "translate":        if pressed do translate_trigger()
-    case "translate_toggle":       if pressed do translate_toggle()
-    case "translate_toggle_theme": if pressed do translate_toggle_theme()
-    case "translate_block":  if pressed do translate_block_trigger()
+    case "extensions":       if pressed do extension_trigger()
     case:
+        if cb, ok := command_registry[cmd]; ok {
+            if pressed do cb()
+            return
+        }
+
         idx := strings.index_byte(cmd, ' ')
         name := cmd[:idx] if idx >= 0 else cmd
         args := cmd[idx+1:] if idx >= 0 else ""

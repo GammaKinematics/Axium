@@ -11,7 +11,7 @@ import "core:c"
 Icon :: enum {
     back, forward, reload, stop, close, add, menu,
     copy, cut, paste, favorite, download, save,
-    settings, keepass, translate, incognito, external,
+    settings, incognito, external,
     link, bold, italic, underline,
     play, pause, mute, fullscreen,
     ban, shuffle, shield, clock,
@@ -33,8 +33,6 @@ icons: [Icon]cstring = {
     .download   = "\xef\x80\x99",  // U+F019
     .save       = "\xef\x83\x87",  // U+F0C7
     .settings   = "\xef\x80\x93",  // U+F013
-    .keepass    = "\xef\x82\x84",  // U+F084
-    .translate  = "\xef\x86\xab",  // U+F1AB
     .incognito  = "\xef\x9b\xba",  // U+F6FA
     .external   = "\xef\x8d\x9d",  // U+F35D
     .link       = "\xef\x83\x81",  // U+F0C1
@@ -187,37 +185,6 @@ on_open_menu :: proc "c" (e: ^lv_event_t) {
     popup_show(panel, anchor)
 }
 
-widget_keepass :: proc(parent: ^lv_obj_t) {
-    btn := lv_button_create(parent)
-    lv_obj_add_event_cb(btn, on_keepass_click, .LV_EVENT_CLICKED, nil)
-    lbl := lv_label_create(btn)
-    lv_label_set_text(lbl, icons[.keepass])
-    lv_obj_set_style_text_font(lbl, icon_font, 0)
-    lv_obj_center(lbl)
-    keepass_popup_anchor = btn
-}
-
-on_keepass_click :: proc "c" (e: ^lv_event_t) {
-    context = runtime.default_context()
-    keepass_trigger()
-}
-
-widget_translate :: proc(parent: ^lv_obj_t) {
-    btn := lv_button_create(parent)
-    lv_obj_add_event_cb(btn, on_translate_click, .LV_EVENT_CLICKED, nil)
-    lbl := lv_label_create(btn)
-    lv_label_set_text(lbl, icons[.translate])
-    lv_obj_set_style_text_font(lbl, icon_font, 0)
-    lv_obj_center(lbl)
-    translate_popup_anchor = btn
-    translate_icon_label = lbl
-}
-
-on_translate_click :: proc "c" (e: ^lv_event_t) {
-    context = runtime.default_context()
-    translate_trigger()
-}
-
 // ---------------------------------------------------------------------------
 // Widget registration
 // ---------------------------------------------------------------------------
@@ -228,9 +195,7 @@ widgets_init :: proc() {
     edge_register_widget("reload", widget_reload)
     edge_register_widget("url", widget_url)
     edge_register_widget("copy", widget_copy)
-    edge_register_widget("keepass", widget_keepass)
     edge_register_widget("settings", widget_settings)
-    edge_register_widget("translate", widget_translate)
     edge_register_widget("favorites", widget_favorite)
     edge_register_widget("downloads", widget_download)
     edge_register_widget("menu", widget_menu)
@@ -240,7 +205,7 @@ widgets_init :: proc() {
 @(export)
 onix_cursor_set :: proc "c" (shape: i32) {
     context = runtime.default_context()
-    display_cursor_set(Cursor(shape))
+    display_set_cursor(Cursor(shape))
 }
 
 // ---------------------------------------------------------------------------

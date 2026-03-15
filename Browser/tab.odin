@@ -164,7 +164,6 @@ tab_switch :: proc(idx: int) {
         display_set_title(e.title)
     }
     if len(e.uri) > 0 {
-        translate_on_navigation(e.uri)
         favorite_on_navigation(e.uri)
         site_settings_update_icon(e.uri)
     }
@@ -204,7 +203,6 @@ tab_on_uri :: proc "c" (view: rawptr, c_uri: cstring) -> Engine_Nav_Response {
                 strings.clone_to_cstring(uri, context.temp_allocator) if len(uri) > 0 else "")
         }
         if len(uri) > 0 {
-            translate_on_navigation(uri)
             favorite_on_navigation(uri)
             site_settings_update_icon(uri)
         }

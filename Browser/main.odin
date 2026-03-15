@@ -18,6 +18,25 @@ base_font: ^lv_font_t
 pending_resize: Maybe(Resize)
 last_resize_time: time.Tick
 
+// Generic poll fd registration (used by display, keepass, translate, extensions)
+poll_callbacks: [dynamic]proc()
+poll_pfds: [dynamic]posix.pollfd
+
+register_poll_fd :: proc(fd: i32, callback: proc()) {
+    append(&poll_callbacks, callback)
+    append(&poll_pfds, posix.pollfd{fd = posix.FD(fd), events = {.IN}})
+}
+
+unregister_poll_fd :: proc(fd: i32) {
+    for i in 0..<len(poll_pfds) {
+        if poll_pfds[i].fd == posix.FD(fd) {
+            unordered_remove(&poll_callbacks, i)
+            unordered_remove(&poll_pfds, i)
+            return
+        }
+    }
+}
+
 // LVGL flush callback — marks rendering complete (direct mode, no copy needed)
 flush_cb :: proc "c" (disp: ^lv_display_t, area: ^lv_area_t, px: [^]u8) {
     lv_display_flush_ready(disp)
@@ -45,25 +64,46 @@ main :: proc() {
         }
     }
 
-    if display_init(.X11, "Axium", WIDTH, HEIGHT) == .Error {
+    if display_init(.X11, "Axium", WIDTH, HEIGHT, gpu = GPU) == .Error {
         fmt.eprintln("Failed to create window")
         return
     }
     defer display_destroy()
+    register_poll_fd(display_fd(), proc() {})
 
-    if !engine_init() {
+    // GPU negotiation: engine + GLAD, fallback if either fails
+    screen := display_screen_info()
+    egl_image: rawptr
+    egl_disp: rawptr
+    when GPU {
+        if gpu_active do egl_disp = display_get_egl_display()
+    }
+    engine_result := engine_init(
+        egl_disp, &egl_image,
+        c.int(screen.width), c.int(screen.height),
+        c.int(screen.physical_width_mm), c.int(screen.physical_height_mm),
+        c.int(screen.refresh_rate_mhz), c.double(screen.scale),
+    )
+    if engine_result == ENGINE_INIT_ERROR {
         fmt.eprintln("Failed to init engine")
         return
     }
     defer engine_shutdown()
 
-    // Set screen properties from RANDR so WebKit knows DPI, scale, refresh rate
-    screen_info := display_screen_info()
-    engine_set_screen_info(
-        c.int(screen_info.width), c.int(screen_info.height),
-        c.int(screen_info.physical_width_mm), c.int(screen_info.physical_height_mm),
-        c.int(screen_info.refresh_rate_mhz), c.double(screen_info.scale),
-    )
+    glad_ok := false
+    when GPU {
+        fmt.eprintln("GPU: gpu_active =", gpu_active, "engine_result =", engine_result)
+        if gpu_active do glad_ok = gladLoadGL(egl.GetProcAddress) > 0
+        fmt.eprintln("GPU: glad_ok =", glad_ok)
+    }
+    if gpu_active && (!glad_ok || engine_result == ENGINE_INIT_CPU_ONLY) {
+        fmt.eprintln("GPU: falling back to CPU")
+        display_fallback_cpu()
+    }
+
+    if gpu_active {
+        lv_opengles_init()
+    }
 
     // Configure adblock (must be before engine_create_view)
     adblock_dir := posix.getenv("AXIUM_ADBLOCK_DIR")
@@ -73,6 +113,7 @@ main :: proc() {
 
     config_load()
     site_settings_load()
+    extension_init()
     privacy_init()
 
     // Initialize history DB, page theme, and internal pages (before creating views)
@@ -89,12 +130,16 @@ main :: proc() {
     lv_init()
     apply_theme()
 
-    lv_disp = lv_display_create(i32(WIDTH), i32(HEIGHT))
-    lv_display_set_color_format(lv_disp, .LV_COLOR_FORMAT_ARGB8888_PREMULTIPLIED)
-
-    fb, fb_w, fb_h := display_framebuffer()
-    lv_display_set_buffers(lv_disp, raw_data(fb), nil, u32(len(fb) * 4), .LV_DISPLAY_RENDER_MODE_DIRECT)
-    lv_display_set_flush_cb(lv_disp, flush_cb)
+    if gpu_active {
+        lv_disp = lv_opengles_texture_create(i32(WIDTH), i32(HEIGHT))
+        lv_display_set_color_format(lv_disp, .LV_COLOR_FORMAT_ARGB8888)
+    } else {
+        lv_disp = lv_display_create(i32(WIDTH), i32(HEIGHT))
+        lv_display_set_color_format(lv_disp, .LV_COLOR_FORMAT_ARGB8888_PREMULTIPLIED)
+        fb, fb_w, _ := display_get_framebuffer()
+        lv_display_set_buffers(lv_disp, raw_data(fb), nil, u32(len(fb) * 4), .LV_DISPLAY_RENDER_MODE_DIRECT)
+        lv_display_set_flush_cb(lv_disp, flush_cb)
+    }
 
     // Input devices for LVGL
     mouse_indev := lv_indev_create()
@@ -131,8 +176,6 @@ main :: proc() {
     tab_init_sizing()
 
     // Build edge containers on lv_layer_top()
-    keepass_init()
-    translate_init()
     widgets_init()
     bounds := edge_init()
     content_area = bounds
@@ -143,13 +186,14 @@ main :: proc() {
     // Set WebKit background color + opacity (before creating views)
     engine_set_bg(theme_bg_prim, theme_bg_opacity if web_bg_opacity else 255)
 
-    // Point WebKit output directly into content area of framebuffer
-    engine_set_frame_target(
-        ([^]u8)(raw_data(fb)),
-        c.int(fb_w * 4),
-        bounds.x, bounds.y,
-        bounds.w, bounds.h,
-    )
+    // Set WebKit rendering bounds and framebuffer
+    if gpu_active {
+        engine_resize(bounds.w, bounds.h, 0, 0, nil, 0)
+    } else {
+        fb, fb_w, _ := display_get_framebuffer()
+        engine_resize(bounds.w, bounds.h, bounds.x, bounds.y,
+            ([^]u8)(raw_data(fb)), c.int(fb_w * 4))
+    }
 
     // Defer view creation until URL is known to avoid PSON ghost process.
     // (Creating a view for about:blank then navigating triggers Process Swap
@@ -212,47 +256,42 @@ main :: proc() {
             continue
         }
 
+        engine_grab_frame()       // GPU: updates EGLImage; CPU: blits to SHM
+
         lv_timer_handler()        // Step LVGL internal state (animations, cursor blink)
-        engine_grab_frame()       // Copy WebKit frame to framebuffer
         edge_invalidate_overlays()
         popup_invalidate()
-        lv_refr_now(lv_disp)     // Redraw overlay edges on top of WebKit
+        lv_refr_now(lv_disp)     // GPU: GL draw to texture; CPU: SW draw to SHM
+
+        if gpu_active {
+            w, h := display_size()
+            lvgl_tex := Texture(lv_opengles_texture_get_texture_id(lv_disp))
+            gpu_present({
+                {image = egl_image,
+                 x = int(content_area.x), y = int(content_area.y),
+                 w = int(content_area.w), h = int(content_area.h),
+                 blend = .None},
+                {texture = lvgl_tex,
+                 x = 0, y = 0, w = w, h = h,
+                 blend = .Premultiplied, flip_v = true, bgra = true},
+            }, w, h)
+        }
 
         // Update cursor if WebKit changed it
         cursor := engine_get_cursor()
         if cursor >= 0 {
-            display_cursor_set(Cursor(cursor))
+            display_set_cursor(Cursor(cursor))
         }
 
-        display_present()
+        display_present()         // GPU: SwapBuffers; CPU: SHM present
 
-        // Sleep until X events, keepass socket, or translate pipe data arrives
-        kfd := keepass_fd()
-        tfd := translate_get_fd()
-        nfds: u64 = 1
-        pfds: [3]posix.pollfd
-        pfds[0] = {fd = posix.FD(display_fd()), events = {.IN}}
-        kfd_idx: int = -1
-        tfd_idx: int = -1
-        if kfd >= 0 {
-            kfd_idx = int(nfds)
-            pfds[nfds] = {fd = posix.FD(kfd), events = {.IN}}
-            nfds += 1
+        // Sleep until any registered fd has activity
+        posix.poll(raw_data(poll_pfds), u64(len(poll_pfds)), -1)
+        for i in 0..<len(poll_pfds) {
+            if .IN in poll_pfds[i].revents {
+                poll_callbacks[i]()
+            }
         }
-        if tfd >= 0 {
-            tfd_idx = int(nfds)
-            pfds[nfds] = {fd = posix.FD(tfd), events = {.IN}}
-            nfds += 1
-        }
-        poll_timeout: i32 = 200 if translate_poll_active else -1
-        posix.poll(&pfds[0], nfds, poll_timeout)
-        if kfd_idx >= 0 && .IN in pfds[kfd_idx].revents {
-            keepass_on_response_ready()
-        }
-        if tfd_idx >= 0 && .IN in pfds[tfd_idx].revents {
-            translate_on_result_ready()
-        }
-        if translate_poll_active do translate_poll_visible()
     }
 
     session_save()

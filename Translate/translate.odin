@@ -175,11 +175,11 @@ translate_hidden: bool
 translate_undo :: proc() {
     if !translate_hidden {
         translate_hidden = true
-        engine_run_javascript(`document.documentElement.setAttribute('data-axium-translate-hidden','')`)
+        engine_run_javascript(nil,`document.documentElement.setAttribute('data-axium-translate-hidden','')`)
         translate_icon_clear_active()
     } else {
         translate_hidden = false
-        engine_run_javascript(`document.documentElement.removeAttribute('data-axium-translate-hidden')`)
+        engine_run_javascript(nil,`document.documentElement.removeAttribute('data-axium-translate-hidden')`)
         translate_icon_set_active()
     }
     if popup_is_active() do popup_dismiss()
@@ -194,7 +194,7 @@ translate_detect_language :: proc() {
     return JSON.stringify({lang: lang.toLowerCase()});
 })()`
 
-    engine_evaluate_javascript(
+    engine_evaluate_javascript(nil,
         strings.clone_to_cstring(js),
         proc "c" (result: cstring) {
             context = runtime.default_context()
@@ -297,7 +297,7 @@ translate_inject_and_walk :: proc() {
   s.textContent='.axium-translate{display:block;color:inherit;font-style:italic;margin:2px 0;word-break:break-word;border-left:2px solid rgba(128,128,128,0.3);padding-left:6px;opacity:0.8}[data-axium-translate-theme="underline"] .axium-translate{font-style:normal;border-left:none;padding-left:0;border-bottom:2px solid #72ece9;opacity:0.85}[data-axium-translate-theme="highlight"] .axium-translate{font-style:normal;border-left:none;padding-left:0;background:rgba(251,218,65,0.4);opacity:1}[data-axium-translate-theme="mask"] .axium-translate{font-style:normal;border-left:none;padding-left:0;filter:blur(5px);transition:filter 0.3s;opacity:1}[data-axium-translate-theme="mask"] .axium-translate:hover{filter:none}[data-axium-translate-mode="translation"] [data-axium-tid]:has(+.axium-translate){display:none}[data-axium-translate-mode="translation"] .axium-translate{opacity:1;font-style:normal;border-left:none;padding-left:0}[data-axium-translate-mode="hover"] .axium-translate{opacity:0!important;transition:opacity 0.2s}[data-axium-translate-mode="hover"] [data-axium-tid]:hover+.axium-translate,[data-axium-translate-mode="hover"] .axium-translate:hover{opacity:0.8!important}[data-axium-translate-hidden] .axium-translate{display:none!important}[data-axium-translate-hidden] [data-axium-tid]{display:revert!important}';
   document.head.appendChild(s);
 })()`
-    engine_run_javascript(css_js)
+    engine_run_javascript(nil,css_js)
     translate_apply_display()
 
     translate_state = .Walking
@@ -340,7 +340,7 @@ translate_inject_and_walk :: proc() {
   return JSON.stringify({count:id});
 })()`
 
-    engine_evaluate_javascript(
+    engine_evaluate_javascript(nil,
         strings.clone_to_cstring(walker_js),
         proc "c" (result: cstring) {
             context = runtime.default_context()
@@ -367,7 +367,7 @@ translate_inject_node :: proc(node_id: int, translated: string) {
     strings.write_string(&b, escaped)
     strings.write_string(&b, `";n.after(s)})()`)
 
-    engine_run_javascript(strings.clone_to_cstring(strings.to_string(b)))
+    engine_run_javascript(nil,strings.clone_to_cstring(strings.to_string(b)))
 }
 
 // Viewport-aware walk complete — replaces old translate_on_walker_done for viewport path
@@ -748,7 +748,7 @@ translate_apply_display :: proc() {
     strings.write_string(&b, `');d.setAttribute('data-axium-translate-theme','`)
     strings.write_string(&b, THEME_NAMES[translate_theme])
     strings.write_string(&b, `')})()`)
-    engine_run_javascript(strings.clone_to_cstring(strings.to_string(b)))
+    engine_run_javascript(nil,strings.clone_to_cstring(strings.to_string(b)))
 }
 
 // --- Model download ---
@@ -1114,7 +1114,7 @@ translate_poll_visible :: proc() {
   return JSON.stringify(n);
 })()`
 
-    engine_evaluate_javascript(
+    engine_evaluate_javascript(nil,
         strings.clone_to_cstring(js),
         proc "c" (result: cstring) {
             context = runtime.default_context()
@@ -1209,7 +1209,7 @@ translate_block_trigger :: proc() {
   return JSON.stringify({type:"element",id:parseInt(tid),text:text.trim()});
 })()`, mouse_screen_x - content_area.x, mouse_screen_y - content_area.y)
 
-    engine_evaluate_javascript(
+    engine_evaluate_javascript(nil,
         strings.clone_to_cstring(js),
         proc "c" (result: cstring) {
             context = runtime.default_context()
@@ -1325,7 +1325,7 @@ translate_install_mutation_observer :: proc() {
   window.__axiumMutationObs.observe(document.body,{childList:true,subtree:true});
 })()`
 
-    engine_run_javascript(strings.clone_to_cstring(js))
+    engine_run_javascript(nil,strings.clone_to_cstring(js))
 }
 
 // --- Config parsing ---

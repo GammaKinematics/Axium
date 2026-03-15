@@ -185,17 +185,17 @@ poll_events :: proc() {
 
 
 handle_resize :: proc(lv_disp: ^lv_display_t) {
-    fb, fb_w, fb_h := display_framebuffer()
-    if fb == nil do return
+    w, h := display_size()
 
-    // Update LVGL display
-    lv_display_set_resolution(lv_disp, i32(fb_w), i32(fb_h))
-    lv_display_set_buffers(
-        lv_disp,
-        raw_data(fb), nil,
-        u32(len(fb) * 4),
-        .LV_DISPLAY_RENDER_MODE_DIRECT,
-    )
+    lv_display_set_resolution(lv_disp, i32(w), i32(h))
+    if gpu_active {
+        tex := lv_display_get_driver_data(lv_disp)
+        lv_opengles_texture_reshape(tex, lv_disp, i32(w), i32(h))
+    } else {
+        fb, fb_w, _ := display_get_framebuffer()
+        if fb == nil do return
+        lv_display_set_buffers(lv_disp, raw_data(fb), nil, u32(len(fb) * 4), .LV_DISPLAY_RENDER_MODE_DIRECT)
+    }
 
     // Re-layout and query content area
     lv_obj_update_layout(lv_layer_top())
@@ -205,23 +205,26 @@ handle_resize :: proc(lv_disp: ^lv_display_t) {
         content_area.x + content_area.w - 1, content_area.y + content_area.h - 1)
 
     // Update WebKit view size and frame target
-    engine_resize(content_area.w, content_area.h)
-    engine_set_frame_target(
-        ([^]u8)(raw_data(fb)),
-        c.int(fb_w * 4),
-        content_area.x, content_area.y,
-        content_area.w, content_area.h,
-    )
+    if gpu_active {
+        engine_resize(content_area.w, content_area.h,
+            content_area.x, content_area.y, nil, 0)
+    } else {
+        fb, fb_w, _ := display_get_framebuffer()
+        engine_resize(content_area.w, content_area.h,
+            content_area.x, content_area.y,
+            ([^]u8)(raw_data(fb)), c.int(fb_w * 4))
+    }
 }
 
 // Relayout helper — updates WebKit engine bounds after edge show/hide
 update_engine_bounds :: proc() {
-    engine_resize(content_area.w, content_area.h)
-    fb, fb_w, _ := display_framebuffer()
-    engine_set_frame_target(
-        ([^]u8)(raw_data(fb)),
-        c.int(fb_w * 4),
-        content_area.x, content_area.y,
-        content_area.w, content_area.h,
-    )
+    if gpu_active {
+        engine_resize(content_area.w, content_area.h,
+            content_area.x, content_area.y, nil, 0)
+    } else {
+        fb, fb_w, _ := display_get_framebuffer()
+        engine_resize(content_area.w, content_area.h,
+            content_area.x, content_area.y,
+            ([^]u8)(raw_data(fb)), c.int(fb_w * 4))
+    }
 }

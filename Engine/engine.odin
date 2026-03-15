@@ -6,20 +6,24 @@ import "core:strings"
 
 foreign import engine "system:engine"
 
+// engine_init return codes
+ENGINE_INIT_OK       :: 0
+ENGINE_INIT_CPU_ONLY :: 1
+ENGINE_INIT_ERROR    :: 2
+
 @(default_calling_convention = "c")
 foreign engine {
-    engine_init          :: proc() -> bool ---
+    engine_init          :: proc(
+        egl_display: rawptr, egl_image_out: ^rawptr,
+        screen_w, screen_h, phys_w_mm, phys_h_mm, refresh_mhz: c.int, scale: c.double,
+    ) -> c.int ---
     engine_create_view   :: proc(width, height: c.int, ephemeral: bool, related: rawptr) -> rawptr ---
     engine_destroy_view  :: proc(view: rawptr) ---
     engine_set_active_view :: proc(view: rawptr) ---
     engine_view_go_to    :: proc(view: rawptr, uri: cstring) ---
-    engine_resize        :: proc(width, height: c.int) ---
+    engine_resize        :: proc(width, height, x, y: c.int, framebuffer: [^]u8, stride: c.int) ---
     engine_pump          :: proc() ---
     engine_grab_frame    :: proc() ---
-    engine_set_frame_target :: proc(
-        buffer: [^]u8, buf_stride: c.int,
-        x, y, w, h: c.int,
-    ) ---
     engine_send_key          :: proc(keyval: c.uint32_t, pressed: bool) ---
     engine_send_mouse_button :: proc(button: c.uint32_t, pressed: bool, x, y: c.double) ---
     engine_send_mouse_move   :: proc(x, y: c.double) ---
@@ -31,17 +35,12 @@ foreign engine {
     engine_go_forward        :: proc() ---
     engine_reload            :: proc() ---
     engine_clipboard_notify_external :: proc(formats: [^]cstring, count: c.int) ---
-    engine_set_screen_info   :: proc(
-        width, height: c.int,
-        phys_w_mm, phys_h_mm: c.int,
-        refresh_rate_mhz: c.int,
-        scale: c.double,
-    ) ---
     engine_set_bg            :: proc(rgb: u32, opacity: c.int) ---
     engine_init_adblock      :: proc(adblock_dir: cstring) ---
     engine_adblock_set_disabled :: proc(disabled: bool) ---
-    engine_run_javascript    :: proc(script: cstring) ---
+    engine_run_javascript    :: proc(view: rawptr, script: cstring) ---
     engine_evaluate_javascript :: proc(
+        view: rawptr,
         script: cstring,
         callback: proc "c" (result: cstring),
     ) ---
@@ -62,6 +61,16 @@ foreign engine {
 
     // Context menu — actions bitset indexed by WebKit stock action enum
     engine_context_menu_activate :: proc(action: c.int) ---
+
+    // User content (extensions)
+    engine_add_user_script       :: proc(source: cstring, frames: c.int,
+                                         time: c.int, allow: [^]cstring,
+                                         allow_count: c.int) ---
+    engine_add_user_style        :: proc(source: cstring, frames: c.int,
+                                         allow: [^]cstring,
+                                         allow_count: c.int) ---
+    engine_remove_all_user_content :: proc() ---
+    engine_extension_reply       :: proc(reply: rawptr, ctx: rawptr, json_str: cstring) ---
 
     engine_shutdown          :: proc() ---
 }

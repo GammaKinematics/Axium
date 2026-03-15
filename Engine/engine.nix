@@ -193,6 +193,24 @@ foreach(axium_target WebProcess NetworkProcess)
   target_link_libraries(\''${axium_target} PRIVATE -Wl,--whole-archive $gst_whole -Wl,--no-whole-archive)
 endforeach()
 GSTEOF
+    '' + ''
+      # Axium: expose process/preference settings via environment variables.
+      # All use !g_getenv("AXIUM_DISABLE_*") — enabled by default, disabled when set.
+      substituteInPlace Source/WebKit/UIProcess/API/glib/WebKitWebContext.cpp \
+        --replace-fail 'configuration->setUsesWebProcessCache(true);' \
+          'configuration->setUsesWebProcessCache(!g_getenv("AXIUM_DISABLE_PROCESS_CACHE"));' \
+        --replace-fail 'configuration->setProcessSwapsOnNavigation(true);' \
+          'configuration->setProcessSwapsOnNavigation(!g_getenv("AXIUM_DISABLE_PSON"));'
+
+      substituteInPlace Source/WebKit/UIProcess/wpe/WebPreferencesWPE.cpp \
+        --replace-fail '#include "WebPreferences.h"' \
+          '#include "WebPreferences.h"
+#include <glib.h>' \
+        --replace-fail 'setThreadedScrollingEnabled(true);' \
+          'setThreadedScrollingEnabled(true);
+    setLazyImageLoadingEnabled(!g_getenv("AXIUM_DISABLE_LAZY_IMAGES"));
+    setLazyIframeLoadingEnabled(!g_getenv("AXIUM_DISABLE_LAZY_IFRAMES"));
+    setSpeculationRulesPrefetchEnabled(!g_getenv("AXIUM_DISABLE_SPECULATIVE_PREFETCH"));'
     '';
 
     nativeBuildInputs = with hostPkgs; [
@@ -232,6 +250,7 @@ GSTEOF
       gst_all_1.gstreamer
       gst_all_1.gst-plugins-base
       gst_all_1.gst-plugins-good
+      gst_all_1.gst-plugins-bad
     ]) ++ (with pkgs; [
       freetype
       fontconfig
@@ -411,12 +430,17 @@ GSTEOF
       pkgs.libsoup_3
       pkgs.libxkbcommon
       pkgs.sqlite
+    ] ++ pkgs.lib.optionals gpu [
+      pkgs.libdrm
     ];
 
     buildPhase = ''
       $CC -c engine.c -o engine.o \
         -I${pages}/include \
-        $(pkg-config --cflags wpe-webkit-2.0 wpe-platform-2.0 glib-2.0 gobject-2.0 sqlite3)
+        ${pkgs.lib.optionalString gpu "-DGPU"} \
+        ${pkgs.lib.optionalString static "-DSTATIC"} \
+        $(pkg-config --cflags wpe-webkit-2.0 wpe-platform-2.0 glib-2.0 gobject-2.0 sqlite3 \
+          ${pkgs.lib.optionalString gpu "libdrm"})
     '' + (if static then ''
       $CXX -c subprocess.cpp -o subprocess.o
       $AR rcs libengine.a engine.o subprocess.o

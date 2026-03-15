@@ -457,7 +457,7 @@ keepass_save_trigger :: proc() {
     return JSON.stringify({user: un, pass: pw.value});
 })()`
 
-    engine_evaluate_javascript(
+    engine_evaluate_javascript(nil,
         strings.clone_to_cstring(js),
         proc "c" (result: cstring) {
             context = runtime.default_context()
@@ -586,7 +586,7 @@ keepass_fill :: proc(entry: Keepass_Entry) {
         user_escaped, pass_escaped,
     )
 
-    engine_run_javascript(strings.clone_to_cstring(js))
+    engine_run_javascript(nil,strings.clone_to_cstring(js))
 }
 
 // --- Fill generated password ---
@@ -614,7 +614,7 @@ keepass_fill_generated :: proc() {
         pass_escaped,
     )
 
-    engine_run_javascript(strings.clone_to_cstring(js))
+    engine_run_javascript(nil,strings.clone_to_cstring(js))
 }
 
 // --- Popup UI ---

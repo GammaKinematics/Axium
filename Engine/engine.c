@@ -1,4 +1,4 @@
-// WPE2 Engine Shim - CPU-only SHM pixel output
+// WPE2 Engine Shim - GPU compositing with CPU-only SHM fallback
 // GObject subclasses for WPE2 + raw pixel extraction via SharedMemory path
 
 #include <wpe/wpe-platform.h>
@@ -42,109 +42,10 @@ static WebKitNetworkSession* g_ephemeral_session = NULL;
 static WebKitUserContentManager* g_content_manager = NULL;
 
 // ---------------------------------------------------------------------------
-// AxiumDisplay - CPU-only SHM (no EGL, no DRM, no DMA-BUF)
-// ---------------------------------------------------------------------------
-typedef struct {
-    WPEDisplay parent_instance;
-    WPEScreen* screen;
-} AxiumDisplay;
-
-typedef struct {
-    WPEDisplayClass parent_class;
-} AxiumDisplayClass;
-
-G_DEFINE_TYPE(AxiumDisplay, axium_display, WPE_TYPE_DISPLAY)
-
-static gboolean axium_display_connect(WPEDisplay* display, GError** error)
-{
-    // Pure CPU/SHM rendering — no EGL needed.
-    // Skipping eglGetDisplay/eglInitialize avoids loading Mesa/LLVM (~43 MB).
-    return TRUE;
-}
-
-static gpointer axium_display_get_egl_display(WPEDisplay* display, GError** error)
-{
-    g_set_error_literal(error, WPE_EGL_ERROR, WPE_EGL_ERROR_NOT_AVAILABLE,
-                        "EGL not available (CPU-only SHM rendering)");
-    return NULL;
-}
-
-static WPEView* axium_display_create_view(WPEDisplay* display)
-{
-    return WPE_VIEW(g_object_new(AXIUM_TYPE_VIEW, "display", display, NULL));
-}
-
-static WPEToplevel* axium_display_create_toplevel(WPEDisplay* display, guint max_views)
-{
-    WPEToplevel* tl = WPE_TOPLEVEL(g_object_new(AXIUM_TYPE_TOPLEVEL, "display", display, NULL));
-    return tl;
-}
-
-static WPEDRMDevice* axium_display_get_drm_device(WPEDisplay* display)
-{
-    return NULL;  // Force SHM path
-}
-
-static WPEBufferFormats* axium_display_get_preferred_buffer_formats(WPEDisplay* display)
-{
-    return NULL;  // Force SHM path
-}
-
-static void axium_display_dispose(GObject* object)
-{
-    AxiumDisplay* self = AXIUM_DISPLAY(object);
-    g_clear_object(&self->screen);
-    G_OBJECT_CLASS(axium_display_parent_class)->dispose(object);
-}
-
-static WPEClipboard* g_clipboard_instance = NULL;
-
-static WPEClipboard* axium_display_get_clipboard(WPEDisplay* display)
-{
-    if (!g_clipboard_instance)
-        g_clipboard_instance = WPE_CLIPBOARD(g_object_new(AXIUM_TYPE_CLIPBOARD, "display", display, NULL));
-    return g_clipboard_instance;
-}
-
-static guint axium_display_get_n_screens(WPEDisplay* display)
-{
-    AxiumDisplay* self = AXIUM_DISPLAY(display);
-    return self->screen ? 1 : 0;
-}
-
-static WPEScreen* axium_display_get_screen(WPEDisplay* display, guint index)
-{
-    AxiumDisplay* self = AXIUM_DISPLAY(display);
-    if (index == 0 && self->screen)
-        return self->screen;
-    return NULL;
-}
-
-static void axium_display_class_init(AxiumDisplayClass* klass)
-{
-    GObjectClass* object_class = G_OBJECT_CLASS(klass);
-    object_class->dispose = axium_display_dispose;
-
-    WPEDisplayClass* display_class = WPE_DISPLAY_CLASS(klass);
-    display_class->connect = axium_display_connect;
-    display_class->get_egl_display = axium_display_get_egl_display;
-    display_class->create_view = axium_display_create_view;
-    display_class->create_toplevel = axium_display_create_toplevel;
-    display_class->get_drm_device = axium_display_get_drm_device;
-    display_class->get_preferred_buffer_formats = axium_display_get_preferred_buffer_formats;
-    display_class->get_clipboard = axium_display_get_clipboard;
-    display_class->get_n_screens = axium_display_get_n_screens;
-    display_class->get_screen = axium_display_get_screen;
-}
-
-static void axium_display_init(AxiumDisplay* self)
-{
-    self->screen = NULL;
-}
-
-// ---------------------------------------------------------------------------
 // AxiumClipboard - bridges WPE clipboard <-> Display-Onix (X11)
 // ---------------------------------------------------------------------------
+static WPEClipboard* g_clipboard_instance = NULL;
+
 typedef struct {
     WPEClipboard parent_instance;
 } AxiumClipboard;
@@ -279,11 +180,17 @@ typedef struct {
 
 G_DEFINE_TYPE(AxiumView, axium_view, WPE_TYPE_VIEW)
 
-// Direct render target -- set by Odin, written by render_buffer
+// Frame target — CPU blit destination (set by engine_init / engine_resize)
 static uint8_t* g_frame_target = NULL;
 static int g_target_stride = 0;
 static int g_target_x = 0, g_target_y = 0;
 static int g_target_w = 0, g_target_h = 0;
+
+// GPU state — non-NULL g_egl_display means GPU mode
+#ifdef GPU
+static void* g_egl_display = NULL;
+static void** g_egl_image_out = NULL;
+#endif
 
 // Deferred callback -- runs on the next main-loop iteration, OUTSIDE the
 // IPC dispatch that triggered render_buffer.
@@ -498,9 +405,9 @@ static int g_tls_allowed_count = 0;
 // JavaScript
 // ---------------------------------------------------------------------------
 
-void engine_run_javascript(const char* script)
+void engine_run_javascript(void* view, const char* script)
 {
-    WebKitWebView* wv = g_active_view;
+    WebKitWebView* wv = view ? (WebKitWebView*)view : g_active_view;
     if (!wv || !script) return;
     webkit_web_view_evaluate_javascript(wv, script, -1, NULL, NULL, NULL, NULL, NULL);
 }
@@ -529,9 +436,9 @@ static void js_eval_finished(GObject* source, GAsyncResult* result, gpointer use
     if (value) g_object_unref(value);
 }
 
-void engine_evaluate_javascript(const char* script, engine_js_result_fn callback)
+void engine_evaluate_javascript(void* view, const char* script, engine_js_result_fn callback)
 {
-    WebKitWebView* wv = g_active_view;
+    WebKitWebView* wv = view ? (WebKitWebView*)view : g_active_view;
     if (!wv || !script) {
         if (callback) callback(NULL);
         return;
@@ -1306,6 +1213,15 @@ static gboolean on_script_message(
     g_object_unref(json_val);
     g_object_unref(json_fn);
 
+    // 0. Extension message routing (async — reply comes later via engine_extension_reply)
+    if (json && strstr(json, "\"_axium_ext\"")) {
+        extension_handle_message(json,
+            webkit_script_message_reply_ref(reply),
+            (void*)g_object_ref(ctx));
+        g_free(json);
+        return TRUE;
+    }
+
     // 1. Try sync C handlers (history, data-clear)
     char* c_result = json ? history_handle_message(json) : NULL;
     if (!c_result && json)
@@ -1384,6 +1300,20 @@ static void on_axium_uri_scheme(WebKitURISchemeRequest* request, gpointer data)
 
     if (serve_page_file(request, page_path))
         return;
+
+    // Extension pages: axium://ext/{id}/{file}
+    if (strncmp(page_path, "ext/", 4) == 0) {
+        int size = 0;
+        const char* mime = NULL;
+        const uint8_t* file_data = extension_serve_file(page_path + 4, &size, &mime);
+        if (file_data && size > 0 && mime) {
+            GInputStream* es = g_memory_input_stream_new_from_data(
+                g_memdup2(file_data, size), size, g_free);
+            webkit_uri_scheme_request_finish(request, es, size, mime);
+            g_object_unref(es);
+            return;
+        }
+    }
 
     const char* msg = "<html><body><h1>Not Found</h1></body></html>";
     GInputStream* s = g_memory_input_stream_new_from_data(g_strdup(msg), -1, g_free);
@@ -1807,74 +1737,84 @@ void engine_view_go_to(void* view, const char* uri)
     webkit_web_view_load_uri((WebKitWebView*)view, uri);
 }
 
-void engine_resize(int width, int height)
+void engine_resize(int width, int height, int x, int y,
+                   uint8_t* framebuffer, int stride)
 {
+    g_frame_target = framebuffer;
+    g_target_stride = stride;
+    g_target_x = x;
+    g_target_y = y;
+    g_target_w = width;
+    g_target_h = height;
     if (g_toplevel)
         wpe_toplevel_resize(g_toplevel, width, height);
 }
 
 // ---------------------------------------------------------------------------
-// Frame — pump GLib, blit WebKit buffer into framebuffer
+// User content (extensions)
 // ---------------------------------------------------------------------------
 
-static AxiumView* get_axium_view(void)
-{
-    if (!g_active_view) return NULL;
-    WPEView* wpe_view = webkit_web_view_get_wpe_view(g_active_view);
-    if (!wpe_view) return NULL;
-    if (!g_type_is_a(G_OBJECT_TYPE(wpe_view), AXIUM_TYPE_VIEW)) return NULL;
-    return AXIUM_VIEW(wpe_view);
+extern void extension_handle_message(const char* json, void* reply, void* ctx);
+extern const uint8_t* extension_serve_file(const char* path, int* out_size, const char** out_mime);
+
+void engine_extension_reply(void* reply_handle, void* ctx_handle, const char* json_str) {
+    WebKitScriptMessageReply* r = (WebKitScriptMessageReply*)reply_handle;
+    JSCContext* c = (JSCContext*)ctx_handle;
+    JSCValue* rv = json_str
+        ? jsc_value_new_string(c, json_str)
+        : jsc_value_new_null(c);
+    webkit_script_message_reply_return_value(r, rv);
+    g_object_unref(rv);
+    webkit_script_message_reply_unref(r);
+    g_object_unref(c);
 }
 
-void engine_pump(void)
+static bool g_has_bg_script = false;
+
+void engine_add_user_script(const char *source, int inject_frames,
+                            int inject_time, const char **allow_list,
+                            int allow_count)
 {
-    while (g_main_context_iteration(NULL, FALSE)) {}
-}
-
-void engine_grab_frame(void)
-{
-    AxiumView* view = get_axium_view();
-    if (!view || !view->committed_buffer || !g_frame_target) return;
-
-    WPEBuffer* buffer = view->committed_buffer;
-    int w = wpe_buffer_get_width(buffer);
-    int h = wpe_buffer_get_height(buffer);
-
-    GError* err = NULL;
-    GBytes* pix = wpe_buffer_import_to_pixels(buffer, &err);
-    if (!pix) { g_clear_error(&err); return; }
-
-    int src_stride;
-    if (WPE_IS_BUFFER_SHM(buffer)) {
-        src_stride = (int)wpe_buffer_shm_get_stride(WPE_BUFFER_SHM(buffer));
-    } else {
-        gsize sz = g_bytes_get_size(pix);
-        src_stride = (h > 0) ? (int)(sz / h) : w * 4;
+    if (!g_content_manager || !source) return;
+    const char **wk_allow = NULL;
+    if (allow_count > 0) {
+        wk_allow = g_new0(const char*, allow_count + 1);
+        for (int i = 0; i < allow_count; i++)
+            wk_allow[i] = allow_list[i];
     }
-
-    gsize pix_size = 0;
-    const uint8_t* src = (const uint8_t*)g_bytes_get_data(pix, &pix_size);
-    if (!src || w <= 0 || h <= 0) return;
-
-    int copy_w = (w < g_target_w ? w : g_target_w) * 4;
-    int copy_h = h < g_target_h ? h : g_target_h;
-
-    for (int y = 0; y < copy_h; y++) {
-        const uint8_t* s = src + y * src_stride;
-        uint8_t* d = g_frame_target + (g_target_y + y) * g_target_stride + g_target_x * 4;
-        memcpy(d, s, copy_w);
-    }
+    WebKitUserScript *us = webkit_user_script_new_for_world(
+        source, inject_frames, inject_time, "axium-ext", wk_allow, NULL);
+    webkit_user_content_manager_add_script(g_content_manager, us);
+    webkit_user_script_unref(us);
+    g_free(wk_allow);
 }
 
-void engine_set_frame_target(uint8_t* buffer, int buf_stride,
-                              int x, int y, int w, int h)
+void engine_add_user_style(const char *source, int inject_frames,
+                           const char **allow_list, int allow_count)
 {
-    g_frame_target = buffer;
-    g_target_stride = buf_stride;
-    g_target_x = x;
-    g_target_y = y;
-    g_target_w = w;
-    g_target_h = h;
+    if (!g_content_manager || !source) return;
+    const char **wk_allow = NULL;
+    if (allow_count > 0) {
+        wk_allow = g_new0(const char*, allow_count + 1);
+        for (int i = 0; i < allow_count; i++)
+            wk_allow[i] = allow_list[i];
+    }
+    WebKitUserStyleSheet *ss = webkit_user_style_sheet_new_for_world(
+        source, inject_frames, WEBKIT_USER_STYLE_LEVEL_USER,
+        "axium-ext", wk_allow, NULL);
+    webkit_user_content_manager_add_style_sheet(g_content_manager, ss);
+    webkit_user_style_sheet_unref(ss);
+    g_free(wk_allow);
+}
+
+void engine_remove_all_user_content(void)
+{
+    if (!g_content_manager) return;
+    webkit_user_content_manager_remove_all_scripts(g_content_manager);
+    webkit_user_content_manager_remove_all_style_sheets(g_content_manager);
+    // Re-add internal bg opacity script if it was active
+    if (g_has_bg_script)
+        engine_set_bg(g_bg_rgb, g_bg_opacity);
 }
 
 // ---------------------------------------------------------------------------
@@ -1915,49 +1855,270 @@ void engine_set_bg(uint32_t rgb, int opacity)
             NULL, NULL);
         webkit_user_content_manager_add_script(g_content_manager, us);
         webkit_user_script_unref(us);
+        g_has_bg_script = true;
     }
 }
 
 // ---------------------------------------------------------------------------
-// Screen info
+// Frame — pump GLib, blit WebKit buffer into framebuffer
 // ---------------------------------------------------------------------------
 
-void engine_set_screen_info(int width, int height,
-                            int phys_w_mm, int phys_h_mm,
-                            int refresh_rate_mhz, double scale)
+static AxiumView* get_axium_view(void)
 {
-    if (!g_display) return;
-    AxiumDisplay* self = AXIUM_DISPLAY(g_display);
+    if (!g_active_view) return NULL;
+    WPEView* wpe_view = webkit_web_view_get_wpe_view(g_active_view);
+    if (!wpe_view) return NULL;
+    if (!g_type_is_a(G_OBJECT_TYPE(wpe_view), AXIUM_TYPE_VIEW)) return NULL;
+    return AXIUM_VIEW(wpe_view);
+}
 
-    WPEScreen* scr = WPE_SCREEN(g_object_new(AXIUM_TYPE_SCREEN, "id", 1, NULL));
-    wpe_screen_set_size(scr, width, height);
-    wpe_screen_set_physical_size(scr, phys_w_mm, phys_h_mm);
-    if (refresh_rate_mhz > 0)
-        wpe_screen_set_refresh_rate(scr, refresh_rate_mhz);
-    wpe_screen_set_scale(scr, scale);
+void engine_pump(void)
+{
+    while (g_main_context_iteration(NULL, FALSE)) {}
+}
 
-    self->screen = scr;
-    wpe_display_screen_added(g_display, scr);
+void engine_grab_frame(void)
+{
+    AxiumView* view = get_axium_view();
+    if (!view || !view->committed_buffer) return;
+
+#ifdef GPU
+    if (g_egl_display) {
+        // GPU path: export EGLImage for Odin to composite as GL texture
+        if (g_egl_image_out) {
+            GError* err = NULL;
+            *g_egl_image_out = wpe_buffer_import_to_egl_image(view->committed_buffer, &err);
+            if (!*g_egl_image_out) g_clear_error(&err);
+        }
+        return;
+    }
+#endif
+
+    // CPU path: blit pixels into framebuffer
+    if (!g_frame_target) return;
+
+    WPEBuffer* buffer = view->committed_buffer;
+    int w = wpe_buffer_get_width(buffer);
+    int h = wpe_buffer_get_height(buffer);
+
+    GError* err = NULL;
+    GBytes* pix = wpe_buffer_import_to_pixels(buffer, &err);
+    if (!pix) { g_clear_error(&err); return; }
+
+    int src_stride;
+    if (WPE_IS_BUFFER_SHM(buffer)) {
+        src_stride = (int)wpe_buffer_shm_get_stride(WPE_BUFFER_SHM(buffer));
+    } else {
+        gsize sz = g_bytes_get_size(pix);
+        src_stride = (h > 0) ? (int)(sz / h) : w * 4;
+    }
+
+    gsize pix_size = 0;
+    const uint8_t* src = (const uint8_t*)g_bytes_get_data(pix, &pix_size);
+    if (!src || w <= 0 || h <= 0) return;
+
+    int copy_w = (w < g_target_w ? w : g_target_w) * 4;
+    int copy_h = h < g_target_h ? h : g_target_h;
+
+    for (int y = 0; y < copy_h; y++) {
+        const uint8_t* s = src + y * src_stride;
+        uint8_t* d = g_frame_target + (g_target_y + y) * g_target_stride + g_target_x * 4;
+        memcpy(d, s, copy_w);
+    }
+}
+
+
+// ---------------------------------------------------------------------------
+// AxiumDisplay - GPU compositing with CPU-only SHM fallback
+// ---------------------------------------------------------------------------
+#ifdef GPU
+#include <xf86drm.h>
+#include <drm_fourcc.h>
+
+static WPEDRMDevice* g_drm_device = NULL;
+
+static WPEDRMDevice* find_drm_device(void)
+{
+    if (g_drm_device) return g_drm_device;
+
+    drmDevicePtr devices[16];
+    int count = drmGetDevices2(0, devices, 16);
+    for (int i = 0; i < count; i++) {
+        if (devices[i]->available_nodes & (1 << DRM_NODE_RENDER)) {
+            const char* render = devices[i]->nodes[DRM_NODE_RENDER];
+            const char* primary = (devices[i]->available_nodes & (1 << DRM_NODE_PRIMARY))
+                                 ? devices[i]->nodes[DRM_NODE_PRIMARY] : NULL;
+            g_drm_device = wpe_drm_device_new(primary, render);
+            drmFreeDevices(devices, count);
+            return g_drm_device;
+        }
+    }
+    if (count > 0) drmFreeDevices(devices, count);
+    return NULL;
+}
+#endif
+
+typedef struct {
+    WPEDisplay parent_instance;
+    WPEScreen* screen;
+} AxiumDisplay;
+
+typedef struct {
+    WPEDisplayClass parent_class;
+} AxiumDisplayClass;
+
+G_DEFINE_TYPE(AxiumDisplay, axium_display, WPE_TYPE_DISPLAY)
+
+static gboolean axium_display_connect(WPEDisplay* display, GError** error)
+{
+    // Pure CPU/SHM rendering — no EGL needed.
+    // Skipping eglGetDisplay/eglInitialize avoids loading Mesa/LLVM (~43 MB).
+    return TRUE;
+}
+
+static gpointer axium_display_get_egl_display(WPEDisplay* display, GError** error)
+{
+#ifdef GPU
+    if (g_egl_display) return g_egl_display;
+#endif
+    g_set_error_literal(error, WPE_EGL_ERROR, WPE_EGL_ERROR_NOT_AVAILABLE,
+                        "EGL not available (CPU-only SHM rendering)");
+    return NULL;
+}
+
+static WPEView* axium_display_create_view(WPEDisplay* display)
+{
+    return WPE_VIEW(g_object_new(AXIUM_TYPE_VIEW, "display", display, NULL));
+}
+
+static WPEToplevel* axium_display_create_toplevel(WPEDisplay* display, guint max_views)
+{
+    WPEToplevel* tl = WPE_TOPLEVEL(g_object_new(AXIUM_TYPE_TOPLEVEL, "display", display, NULL));
+    return tl;
+}
+
+static WPEDRMDevice* axium_display_get_drm_device(WPEDisplay* display)
+{
+#ifdef GPU
+    if (g_egl_display) return find_drm_device();
+#endif
+    return NULL;  // Force SHM path
+}
+
+static WPEBufferFormats* axium_display_get_preferred_buffer_formats(WPEDisplay* display)
+{
+#ifdef GPU
+    if (g_egl_display) {
+        WPEDRMDevice* drm = find_drm_device();
+        if (!drm) return NULL;
+
+        WPEBufferFormatsBuilder* builder = wpe_buffer_formats_builder_new(drm);
+        wpe_buffer_formats_builder_append_group(builder, NULL, WPE_BUFFER_FORMAT_USAGE_RENDERING);
+        wpe_buffer_formats_builder_append_format(builder, DRM_FORMAT_ARGB8888, DRM_FORMAT_MOD_LINEAR);
+        return wpe_buffer_formats_builder_end(builder);
+    }
+#endif
+    return NULL;  // Force SHM path
+}
+
+static void axium_display_dispose(GObject* object)
+{
+    AxiumDisplay* self = AXIUM_DISPLAY(object);
+    g_clear_object(&self->screen);
+    G_OBJECT_CLASS(axium_display_parent_class)->dispose(object);
+}
+
+static WPEClipboard* axium_display_get_clipboard(WPEDisplay* display)
+{
+    if (!g_clipboard_instance)
+        g_clipboard_instance = WPE_CLIPBOARD(g_object_new(AXIUM_TYPE_CLIPBOARD, "display", display, NULL));
+    return g_clipboard_instance;
+}
+
+static guint axium_display_get_n_screens(WPEDisplay* display)
+{
+    AxiumDisplay* self = AXIUM_DISPLAY(display);
+    return self->screen ? 1 : 0;
+}
+
+static WPEScreen* axium_display_get_screen(WPEDisplay* display, guint index)
+{
+    AxiumDisplay* self = AXIUM_DISPLAY(display);
+    if (index == 0 && self->screen)
+        return self->screen;
+    return NULL;
+}
+
+static void axium_display_class_init(AxiumDisplayClass* klass)
+{
+    GObjectClass* object_class = G_OBJECT_CLASS(klass);
+    object_class->dispose = axium_display_dispose;
+
+    WPEDisplayClass* display_class = WPE_DISPLAY_CLASS(klass);
+    display_class->connect = axium_display_connect;
+    display_class->get_egl_display = axium_display_get_egl_display;
+    display_class->create_view = axium_display_create_view;
+    display_class->create_toplevel = axium_display_create_toplevel;
+    display_class->get_drm_device = axium_display_get_drm_device;
+    display_class->get_preferred_buffer_formats = axium_display_get_preferred_buffer_formats;
+    display_class->get_clipboard = axium_display_get_clipboard;
+    display_class->get_n_screens = axium_display_get_n_screens;
+    display_class->get_screen = axium_display_get_screen;
+}
+
+static void axium_display_init(AxiumDisplay* self)
+{
+    self->screen = NULL;
 }
 
 // ---------------------------------------------------------------------------
 // Init / Shutdown
 // ---------------------------------------------------------------------------
 
-// Axium: static TLS backend registration — no dlopen.
-extern void g_tls_backend_gnutls_register(void *module);
+// Return codes for engine_init
+#define ENGINE_INIT_OK       0  // GPU mode active (or no GPU requested)
+#define ENGINE_INIT_CPU_ONLY 1  // GPU requested but failed, need CPU fallback
+#define ENGINE_INIT_ERROR    2  // Hard failure
 
-bool engine_init(void)
+// Axium: static TLS backend registration — no dlopen.
+#ifdef STATIC
+extern void g_tls_backend_gnutls_register(void *module);
+#endif
+
+int engine_init(void* egl_display, void** egl_image_out,
+                int screen_w, int screen_h,
+                int phys_w_mm, int phys_h_mm,
+                int refresh_mhz, double scale)
 {
+#ifdef GPU
+    g_egl_display = egl_display;
+    g_egl_image_out = egl_image_out;
+#endif
+
+#ifdef STATIC
     // Register GnuTLS backend before any networking.
     g_tls_backend_gnutls_register(NULL);
+#endif
 
     g_display = WPE_DISPLAY(g_object_new(AXIUM_TYPE_DISPLAY, NULL));
     GError* error = NULL;
     if (!wpe_display_connect(g_display, &error)) {
         g_clear_error(&error);
         g_clear_object(&g_display);
-        return false;
+        return ENGINE_INIT_ERROR;
+    }
+
+    // Screen info (DPI, scale, refresh rate)
+    {
+        AxiumDisplay* self = AXIUM_DISPLAY(g_display);
+        WPEScreen* scr = WPE_SCREEN(g_object_new(AXIUM_TYPE_SCREEN, "id", 1, NULL));
+        wpe_screen_set_size(scr, screen_w, screen_h);
+        wpe_screen_set_physical_size(scr, phys_w_mm, phys_h_mm);
+        if (refresh_mhz > 0)
+            wpe_screen_set_refresh_rate(scr, refresh_mhz);
+        wpe_screen_set_scale(scr, scale);
+        self->screen = scr;
+        wpe_display_screen_added(g_display, scr);
     }
 
     // Single shared toplevel for all views (tabbed browser)
@@ -1980,16 +2141,32 @@ bool engine_init(void)
 
     // Register axium:// URI scheme
     WebKitWebContext* ctx = webkit_web_context_get_default();
+    webkit_web_context_set_cache_model(ctx, WEBKIT_CACHE_MODEL_DOCUMENT_VIEWER);
     webkit_web_context_register_uri_scheme(ctx, "axium", on_axium_uri_scheme, NULL, NULL);
     WebKitSecurityManager* sec = webkit_web_context_get_security_manager(ctx);
     webkit_security_manager_register_uri_scheme_as_local(sec, "axium");
     webkit_security_manager_register_uri_scheme_as_secure(sec, "axium");
 
-    return true;
+#ifdef GPU
+    // GPU was requested but WPE couldn't use it (DRM device, buffer formats, etc.)
+    if (egl_display && !g_egl_display) {
+        return ENGINE_INIT_CPU_ONLY;
+    }
+#endif
+
+    return ENGINE_INIT_OK;
 }
 
 void engine_shutdown(void)
 {
+#ifdef GPU
+    if (g_drm_device) {
+        wpe_drm_device_unref(g_drm_device);
+        g_drm_device = NULL;
+    }
+    g_egl_display = NULL;
+    g_egl_image_out = NULL;
+#endif
     history_close();
     g_active_view = NULL;
     g_clear_object(&g_ephemeral_session);
