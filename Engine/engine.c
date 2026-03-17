@@ -766,6 +766,16 @@ void engine_adblock_set_disabled(bool disabled)
 }
 
 // ---------------------------------------------------------------------------
+// Extension host (stub — returns 0 until UIProcess side is implemented)
+// ---------------------------------------------------------------------------
+
+int axium_get_ext_fds(int** fds)
+{
+    *fds = NULL;
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
 // Downloads
 // ---------------------------------------------------------------------------
 
@@ -1070,6 +1080,125 @@ void engine_history_init(const char* db_path)
 }
 
 // ---------------------------------------------------------------------------
+// Background color + opacity
+// ---------------------------------------------------------------------------
+
+static bool g_has_bg_script = false;
+
+void engine_set_bg(uint32_t rgb, int opacity)
+{
+    g_bg_rgb = rgb;
+    g_bg_opacity = opacity;
+    g_bg_color_set = true;
+
+    // Inject page background opacity script if not fully opaque
+    if (opacity < 255 && g_content_manager) {
+        float alpha = opacity / 255.0f;
+        char script[1024];
+        snprintf(script, sizeof(script),
+            "(function(A){"
+              "function p(e){"
+                "var b=getComputedStyle(e).backgroundColor;"
+                "if(!b||b==='transparent'||b==='rgba(0, 0, 0, 0)')return;"
+                "var m=b.match(/rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)/);"
+                "if(m)e.style.backgroundColor='rgba('+m[1]+','+m[2]+','+m[3]+','+A+')';"
+              "}"
+              "function r(){"
+                "if(document.documentElement)p(document.documentElement);"
+                "if(document.body)p(document.body);"
+              "}"
+              "r();"
+              "new MutationObserver(r).observe(document.documentElement,"
+                "{attributes:true,attributeFilter:['style','class'],childList:true});"
+            "})(%.4f);", alpha);
+
+        WebKitUserScript* us = webkit_user_script_new(
+            script,
+            WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,
+            WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_END,
+            NULL, NULL);
+        webkit_user_content_manager_add_script(g_content_manager, us);
+        webkit_user_script_unref(us);
+        g_has_bg_script = true;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// User content (extensions)
+// ---------------------------------------------------------------------------
+
+extern void extension_handle_message(const char* json, void* reply, void* ctx);
+extern const uint8_t* extension_serve_file(const char* path, int* out_size, const char** out_mime);
+
+void engine_extension_reply(void* reply_handle, void* ctx_handle, const char* json_str) {
+    WebKitScriptMessageReply* r = (WebKitScriptMessageReply*)reply_handle;
+    JSCContext* c = (JSCContext*)ctx_handle;
+    JSCValue* rv = json_str
+        ? jsc_value_new_string(c, json_str)
+        : jsc_value_new_null(c);
+    webkit_script_message_reply_return_value(r, rv);
+    g_object_unref(rv);
+    webkit_script_message_reply_unref(r);
+    g_object_unref(c);
+}
+
+void engine_add_user_script(const char *source, int inject_frames,
+                            int inject_time, const char **allow_list,
+                            int allow_count, const char *world_name)
+{
+    if (!g_content_manager || !source) return;
+    const char **wk_allow = NULL;
+    if (allow_count > 0) {
+        wk_allow = g_new0(const char*, allow_count + 1);
+        for (int i = 0; i < allow_count; i++)
+            wk_allow[i] = allow_list[i];
+    }
+    const char *world = (world_name && world_name[0]) ? world_name : "axium-ext";
+    WebKitUserScript *us = webkit_user_script_new_for_world(
+        source, inject_frames, inject_time, world, wk_allow, NULL);
+    webkit_user_content_manager_add_script(g_content_manager, us);
+    webkit_user_script_unref(us);
+    g_free(wk_allow);
+}
+
+void engine_add_user_style(const char *source, int inject_frames,
+                           const char **allow_list, int allow_count,
+                           const char *world_name)
+{
+    if (!g_content_manager || !source) return;
+    const char **wk_allow = NULL;
+    if (allow_count > 0) {
+        wk_allow = g_new0(const char*, allow_count + 1);
+        for (int i = 0; i < allow_count; i++)
+            wk_allow[i] = allow_list[i];
+    }
+    const char *world = (world_name && world_name[0]) ? world_name : "axium-ext";
+    WebKitUserStyleSheet *ss = webkit_user_style_sheet_new_for_world(
+        source, inject_frames, WEBKIT_USER_STYLE_LEVEL_USER,
+        world, wk_allow, NULL);
+    webkit_user_content_manager_add_style_sheet(g_content_manager, ss);
+    webkit_user_style_sheet_unref(ss);
+    g_free(wk_allow);
+}
+
+void engine_register_ext_world(const char *world_name)
+{
+    if (!g_content_manager || !world_name) return;
+    webkit_user_content_manager_register_script_message_handler_with_reply(
+        g_content_manager, "axium", world_name);
+}
+
+void engine_remove_all_user_content(void)
+{
+    if (!g_content_manager) return;
+    webkit_user_content_manager_remove_all_scripts(g_content_manager);
+    webkit_user_content_manager_remove_all_style_sheets(g_content_manager);
+    // Re-add internal bg opacity script if it was active
+    if (g_has_bg_script)
+        engine_set_bg(g_bg_rgb, g_bg_opacity);
+}
+
+// ---------------------------------------------------------------------------
 // Pages (axium:// scheme, data handlers, script message dispatch)
 // ---------------------------------------------------------------------------
 
@@ -1207,14 +1336,22 @@ static gboolean on_script_message(
     (void)manager; (void)user_data;
 
     JSCContext* ctx = jsc_value_get_context(message);
-    JSCValue* json_fn = jsc_context_evaluate(ctx, "JSON.stringify", -1);
-    JSCValue* json_val = jsc_value_function_call(json_fn, JSC_TYPE_VALUE, message, G_TYPE_NONE);
-    char* json = jsc_value_to_string(json_val);
-    g_object_unref(json_val);
-    g_object_unref(json_fn);
+    char* json;
+    if (jsc_value_is_string(message)) {
+        // Message is already a JSON string (from polyfill's JSON.stringify)
+        json = jsc_value_to_string(message);
+    } else {
+        // Message is an object — stringify it
+        JSCValue* json_fn = jsc_context_evaluate(ctx, "JSON.stringify", -1);
+        JSCValue* json_val = jsc_value_function_call(json_fn, JSC_TYPE_VALUE, message, G_TYPE_NONE);
+        json = jsc_value_to_string(json_val);
+        g_object_unref(json_val);
+        g_object_unref(json_fn);
+    }
 
     // 0. Extension message routing (async — reply comes later via engine_extension_reply)
     if (json && strstr(json, "\"_axium_ext\"")) {
+        fprintf(stderr, "[engine] dispatching to extension_handle_message\n");
         extension_handle_message(json,
             webkit_script_message_reply_ref(reply),
             (void*)g_object_ref(ctx));
@@ -1751,115 +1888,6 @@ void engine_resize(int width, int height, int x, int y,
 }
 
 // ---------------------------------------------------------------------------
-// User content (extensions)
-// ---------------------------------------------------------------------------
-
-extern void extension_handle_message(const char* json, void* reply, void* ctx);
-extern const uint8_t* extension_serve_file(const char* path, int* out_size, const char** out_mime);
-
-void engine_extension_reply(void* reply_handle, void* ctx_handle, const char* json_str) {
-    WebKitScriptMessageReply* r = (WebKitScriptMessageReply*)reply_handle;
-    JSCContext* c = (JSCContext*)ctx_handle;
-    JSCValue* rv = json_str
-        ? jsc_value_new_string(c, json_str)
-        : jsc_value_new_null(c);
-    webkit_script_message_reply_return_value(r, rv);
-    g_object_unref(rv);
-    webkit_script_message_reply_unref(r);
-    g_object_unref(c);
-}
-
-static bool g_has_bg_script = false;
-
-void engine_add_user_script(const char *source, int inject_frames,
-                            int inject_time, const char **allow_list,
-                            int allow_count)
-{
-    if (!g_content_manager || !source) return;
-    const char **wk_allow = NULL;
-    if (allow_count > 0) {
-        wk_allow = g_new0(const char*, allow_count + 1);
-        for (int i = 0; i < allow_count; i++)
-            wk_allow[i] = allow_list[i];
-    }
-    WebKitUserScript *us = webkit_user_script_new_for_world(
-        source, inject_frames, inject_time, "axium-ext", wk_allow, NULL);
-    webkit_user_content_manager_add_script(g_content_manager, us);
-    webkit_user_script_unref(us);
-    g_free(wk_allow);
-}
-
-void engine_add_user_style(const char *source, int inject_frames,
-                           const char **allow_list, int allow_count)
-{
-    if (!g_content_manager || !source) return;
-    const char **wk_allow = NULL;
-    if (allow_count > 0) {
-        wk_allow = g_new0(const char*, allow_count + 1);
-        for (int i = 0; i < allow_count; i++)
-            wk_allow[i] = allow_list[i];
-    }
-    WebKitUserStyleSheet *ss = webkit_user_style_sheet_new_for_world(
-        source, inject_frames, WEBKIT_USER_STYLE_LEVEL_USER,
-        "axium-ext", wk_allow, NULL);
-    webkit_user_content_manager_add_style_sheet(g_content_manager, ss);
-    webkit_user_style_sheet_unref(ss);
-    g_free(wk_allow);
-}
-
-void engine_remove_all_user_content(void)
-{
-    if (!g_content_manager) return;
-    webkit_user_content_manager_remove_all_scripts(g_content_manager);
-    webkit_user_content_manager_remove_all_style_sheets(g_content_manager);
-    // Re-add internal bg opacity script if it was active
-    if (g_has_bg_script)
-        engine_set_bg(g_bg_rgb, g_bg_opacity);
-}
-
-// ---------------------------------------------------------------------------
-// Background color + opacity
-// ---------------------------------------------------------------------------
-
-void engine_set_bg(uint32_t rgb, int opacity)
-{
-    g_bg_rgb = rgb;
-    g_bg_opacity = opacity;
-    g_bg_color_set = true;
-
-    // Inject page background opacity script if not fully opaque
-    if (opacity < 255 && g_content_manager) {
-        float alpha = opacity / 255.0f;
-        char script[1024];
-        snprintf(script, sizeof(script),
-            "(function(A){"
-              "function p(e){"
-                "var b=getComputedStyle(e).backgroundColor;"
-                "if(!b||b==='transparent'||b==='rgba(0, 0, 0, 0)')return;"
-                "var m=b.match(/rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)/);"
-                "if(m)e.style.backgroundColor='rgba('+m[1]+','+m[2]+','+m[3]+','+A+')';"
-              "}"
-              "function r(){"
-                "if(document.documentElement)p(document.documentElement);"
-                "if(document.body)p(document.body);"
-              "}"
-              "r();"
-              "new MutationObserver(r).observe(document.documentElement,"
-                "{attributes:true,attributeFilter:['style','class'],childList:true});"
-            "})(%.4f);", alpha);
-
-        WebKitUserScript* us = webkit_user_script_new(
-            script,
-            WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,
-            WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_END,
-            NULL, NULL);
-        webkit_user_content_manager_add_script(g_content_manager, us);
-        webkit_user_script_unref(us);
-        g_has_bg_script = true;
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Frame — pump GLib, blit WebKit buffer into framebuffer
 // ---------------------------------------------------------------------------
 
@@ -2146,6 +2174,7 @@ int engine_init(void* egl_display, void** egl_image_out,
     WebKitSecurityManager* sec = webkit_web_context_get_security_manager(ctx);
     webkit_security_manager_register_uri_scheme_as_local(sec, "axium");
     webkit_security_manager_register_uri_scheme_as_secure(sec, "axium");
+    webkit_security_manager_register_uri_scheme_as_cors_enabled(sec, "axium");
 
 #ifdef GPU
     // GPU was requested but WPE couldn't use it (DRM device, buffer formats, etc.)

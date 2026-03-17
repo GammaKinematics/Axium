@@ -211,6 +211,111 @@ GSTEOF
     setLazyImageLoadingEnabled(!g_getenv("AXIUM_DISABLE_LAZY_IMAGES"));
     setLazyIframeLoadingEnabled(!g_getenv("AXIUM_DISABLE_LAZY_IFRAMES"));
     setSpeculationRulesPrefetchEnabled(!g_getenv("AXIUM_DISABLE_SPECULATIVE_PREFETCH"));'
+
+      # -----------------------------------------------------------------------
+      # Axium: WebProcess extension host patches
+      # -----------------------------------------------------------------------
+
+      # Patch 1: Add extension fd fields to WebProcessCreationParameters.h
+      substituteInPlace Source/WebKit/Shared/WebProcessCreationParameters.h \
+        --replace-fail \
+          '    CString implementationLibraryName;
+#endif
+
+    std::optional<WebProcessDataStoreParameters> websiteDataStoreParameters;' \
+          '    CString implementationLibraryName;
+#endif
+
+    Vector<UnixFileDescriptor> axiumExtensionFDs;
+
+    std::optional<WebProcessDataStoreParameters> websiteDataStoreParameters;'
+
+      # Patch 2: Add serialization entries for new fields
+      substituteInPlace Source/WebKit/Shared/WebProcessCreationParameters.serialization.in \
+        --replace-fail \
+          '    CString implementationLibraryName;
+#endif
+
+    std::optional<WebKit::WebProcessDataStoreParameters> websiteDataStoreParameters;' \
+          '    CString implementationLibraryName;
+#endif
+
+    Vector<WTF::UnixFileDescriptor> axiumExtensionFDs;
+
+    std::optional<WebKit::WebProcessDataStoreParameters> websiteDataStoreParameters;'
+
+      # Patch 3: UIProcess — populate extension fds in creation params
+      substituteInPlace Source/WebKit/UIProcess/glib/WebProcessPoolGLib.cpp \
+        --replace-fail \
+          '    parameters.availableInputDevices = availableInputDevices();' \
+          '    // Axium: pass extension socketpair fds to WebProcess
+    {
+        extern "C" int axium_get_ext_fds(int** fds);
+        int* fds = nullptr;
+        int count = axium_get_ext_fds(&fds);
+        for (int i = 0; i < count; i++)
+            parameters.axiumExtensionFDs.append(UnixFileDescriptor { fds[i], UnixFileDescriptor::Adopt });
+    }
+
+    parameters.availableInputDevices = availableInputDevices();'
+
+      # Patch 4: WebProcess — call axium_host_init at end of platformInitializeWebProcess
+      substituteInPlace Source/WebKit/WebProcess/glib/WebProcessGLib.cpp \
+        --replace-fail \
+          '#endif
+}
+
+void WebProcess::platformSetWebsiteDataStoreParameters' \
+          '#endif
+
+    // Axium: initialize extension host with fds from UIProcess
+    if (!parameters.axiumExtensionFDs.isEmpty()) {
+        int count = parameters.axiumExtensionFDs.size();
+        int fds[count];
+        for (int i = 0; i < count; i++)
+            fds[i] = parameters.axiumExtensionFDs[i].release();
+        void axium_host_init(int count, int* fds);
+        axium_host_init(count, fds);
+    }
+}
+
+void WebProcess::platformSetWebsiteDataStoreParameters'
+
+      # Patch 5: Copy AxiumHost.cpp into WebKit source tree and add to build.
+      # This file is compiled as part of WebKit — direct access to all internal APIs.
+      cp ${./axium_host.cpp} Source/WebKit/WebProcess/AxiumHost.cpp
+
+      substituteInPlace Source/WebKit/SourcesWPE.txt \
+        --replace-fail \
+          'WebProcess/glib/WebProcessGLib.cpp' \
+          'WebProcess/AxiumHost.cpp
+WebProcess/glib/WebProcessGLib.cpp'
+
+      # Patch 6: didPostMessage intercept — forward declaration + 3-line intercept
+      substituteInPlace Source/WebKit/WebProcess/UserContent/WebUserContentController.cpp \
+        --replace-fail \
+          'namespace WebKit {
+using namespace WebCore;' \
+          'namespace WebKit {
+using namespace WebCore;
+
+// Axium: forward declaration — defined in WebProcess/AxiumHost.cpp
+bool axiumTryHandleExtension(JSGlobalContextRef, JavaScriptEvaluationResult&, WTF::Function<void(JSC::JSValue, const String&)>&);'
+
+      substituteInPlace Source/WebKit/WebProcess/UserContent/WebUserContentController.cpp \
+        --replace-fail \
+          '        if (!message)
+            return;
+
+        protect(WebProcess::singleton().parentProcessConnection())->sendWithAsyncReply(Messages::WebProcessProxy::DidPostMessage(' \
+          '        if (!message)
+            return;
+
+        // Axium: route extension messages directly, bypass UIProcess
+        if (axiumTryHandleExtension(context.get(), *message, completionHandler))
+            return;
+
+        protect(WebProcess::singleton().parentProcessConnection())->sendWithAsyncReply(Messages::WebProcessProxy::DidPostMessage('
     '';
 
     nativeBuildInputs = with hostPkgs; [

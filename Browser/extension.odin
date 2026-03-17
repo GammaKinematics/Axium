@@ -138,6 +138,10 @@ window.__axium_dispatch=function(msg){
 var ls=browser.runtime.onMessage._l;
 for(var i=0;i<ls.length;i++)ls[i](msg,{},{});
 };
+window.addEventListener('error',function(e){
+window.webkit.messageHandlers.axium.postMessage(
+JSON.stringify({_axium_ext:true,ext_id:_ext_id,action:"_js_error",msg:e.message,file:e.filename,line:e.lineno}));
+});
 })();`
 
 // ---------------------------------------------------------------------------
@@ -280,16 +284,20 @@ extension_scan_dir :: proc() {
 
         // Detect type from extension
         type_: Ext_Type
-        if strings.has_suffix(name, ".axe") do type_ = .Axe
-        else if strings.has_suffix(name, ".xpi") do type_ = .Xpi
-        else if strings.has_suffix(name, ".crx") do type_ = .Crx
+        if strings.has_suffix(name, ".axe") {
+            type_ = .Axe
+        } else if strings.has_suffix(name, ".xpi") {
+            type_ = .Xpi
+        } else if strings.has_suffix(name, ".crx") {
+            type_ = .Crx
+        }
 
         new_entry := Ext_Entry{
-            filename:    strings.clone(name),
-            name:        strings.clone(name[:strings.last_index_byte(name, '.')]),
-            type_:       type_,
-            enabled:     true,
-            auto_update: false,
+            filename    = strings.clone(name),
+            name        = strings.clone(name[:strings.last_index_byte(name, '.')]),
+            type_       = type_,
+            enabled     = true,
+            auto_update = false,
         }
         append(&extensions, new_entry)
     }
@@ -327,7 +335,7 @@ ext_build_polyfill :: proc(ext_id: string, msgs_json: string) -> string {
     return strings.clone(strings.to_string(b))
 }
 
-extension_inject_polyfill :: proc(ext_id: string, allow: []cstring, msgs_json: string) {
+extension_inject_polyfill :: proc(ext_id: string, allow: []cstring, msgs_json: string, world: cstring) {
     src := ext_build_polyfill(ext_id, msgs_json)
     defer delete(src)
     cstr := strings.clone_to_cstring(src)
@@ -339,7 +347,7 @@ extension_inject_polyfill :: proc(ext_id: string, allow: []cstring, msgs_json: s
     engine_add_user_script(cstr,
         1,  // WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES
         0,  // WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START
-        allow_ptr, c.int(len(allow)))
+        allow_ptr, c.int(len(allow)), world)
 }
 
 // ---------------------------------------------------------------------------
@@ -508,6 +516,11 @@ extension_load :: proc(idx: int) {
         append(&ext.content_scripts, cs)
     }
 
+    fmt.eprintln("[ext]", ext.name, "— parsed", len(ext.content_scripts), "content script groups")
+    for cs, idx in ext.content_scripts {
+        fmt.eprintln("[ext]   group", idx, ":", len(cs.js_files), "js,", len(cs.css_files), "css,", len(cs.matches), "matches, run_at =", cs.run_at)
+    }
+
     // Register all content scripts + polyfill with engine
     extension_register_ext_scripts(ext)
 
@@ -585,22 +598,31 @@ extension_register_ext_scripts :: proc(ext: ^Ext_Entry) {
     ext_id := extension_get_id(ext^)
     zip_data := ext.archive[ext.zip_offset:]
 
+    // Each extension gets its own script world to avoid polyfill collisions
+    world_name := strings.clone_to_cstring(fmt.tprintf("axium-ext-%s", ext_id))
+    defer delete(world_name)
+    engine_register_ext_world(world_name)
+
     // Collect all unique match patterns across content scripts for the polyfill
     all_allow: [dynamic]cstring
     defer {
         for a in all_allow do delete(a)
         delete(all_allow)
     }
+    polyfill_all_urls := false
     for cs in ext.content_scripts {
         for m in cs.matches {
+            if m == "<all_urls>" { polyfill_all_urls = true; break }
             append(&all_allow, strings.clone_to_cstring(m))
         }
+        if polyfill_all_urls do break
     }
 
     // Load i18n messages from archive and inject polyfill
     msgs_json := ext_load_i18n_messages(ext)
     defer delete(msgs_json)
-    extension_inject_polyfill(ext_id, all_allow[:], msgs_json)
+    polyfill_allow := all_allow[:] if !polyfill_all_urls else []cstring{}
+    extension_inject_polyfill(ext_id, polyfill_allow, msgs_json, world_name)
 
     // Register each content script — extract JS/CSS from cached zip on the fly
     for cs in ext.content_scripts {
@@ -609,25 +631,32 @@ extension_register_ext_scripts :: proc(ext: ^Ext_Entry) {
             for a in allow do delete(a)
             delete(allow)
         }
+        all_urls := false
         for m in cs.matches {
+            if m == "<all_urls>" { all_urls = true; break }
             append(&allow, strings.clone_to_cstring(m))
         }
 
         allow_ptr: [^]cstring = nil
-        if len(allow) > 0 do allow_ptr = raw_data(allow[:])
+        if !all_urls && len(allow) > 0 do allow_ptr = raw_data(allow[:])
 
         inject_time: c.int = 1  // WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_END
         if cs.run_at == .Document_Start do inject_time = 0
 
         for js_file in cs.js_files {
             src := ext_extract_file(zip_data, ext.zip_entries, js_file)
-            if src == nil do continue
+            if src == nil {
+                fmt.eprintln("[ext]   MISSING js file:", js_file)
+                continue
+            }
+            fmt.eprintln("[ext]   injecting js:", js_file, "len=", len(src))
             cstr := strings.clone_to_cstring(string(src))
             delete(src)
+            allow_count := c.int(0) if all_urls else c.int(len(allow))
             engine_add_user_script(cstr,
                 1,  // WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES
                 inject_time,
-                allow_ptr, c.int(len(allow)))
+                allow_ptr, allow_count, world_name)
             delete(cstr)
         }
 
@@ -636,9 +665,10 @@ extension_register_ext_scripts :: proc(ext: ^Ext_Entry) {
             if src == nil do continue
             cstr := strings.clone_to_cstring(string(src))
             delete(src)
+            allow_count := c.int(0) if all_urls else c.int(len(allow))
             engine_add_user_style(cstr,
                 1,  // WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES
-                allow_ptr, c.int(len(allow)))
+                allow_ptr, allow_count, world_name)
             delete(cstr)
         }
     }
@@ -662,8 +692,9 @@ ext_verify_signature :: proc(data: []u8, sig_bytes: []u8) -> bool {
     if len(sig_bytes) != 64 do return false
 
     for key in ext_trusted_pubkeys {
+        k := key
         pk: ed25519.Public_Key
-        if !ed25519.public_key_set_bytes(&pk, key[:]) do continue
+        if !ed25519.public_key_set_bytes(&pk, k[:]) do continue
         if ed25519.verify(&pk, data, sig_bytes) do return true
     }
     return false
@@ -812,6 +843,7 @@ extension_handle_message :: proc "c" (c_payload: cstring, reply: rawptr, ctx: ra
         engine_extension_reply(reply, ctx, nil)
         return
     }
+    fmt.eprintln("[ext-msg] action:", action)
 
     switch action {
     case "storage.get":
@@ -829,6 +861,7 @@ extension_handle_message :: proc "c" (c_payload: cstring, reply: rawptr, ctx: ra
     case "sendMessage":
         ext_id, eok := obj["ext_id"].(json.String)
         if !eok {
+            fmt.eprintln("[ext-msg] sendMessage: no ext_id")
             engine_extension_reply(reply, ctx, nil)
             return
         }
@@ -837,12 +870,15 @@ extension_handle_message :: proc "c" (c_payload: cstring, reply: rawptr, ctx: ra
             if ext.native_handle_message != nil {
                 data_json, merr := json.marshal(obj["data"])
                 if merr != nil {
+                    fmt.eprintln("[ext-msg] sendMessage: marshal failed for", ext_id)
                     engine_extension_reply(reply, ctx, nil)
                     return
                 }
                 data_cstr := strings.clone_to_cstring(string(data_json))
                 delete(data_json)
+                fmt.eprintln("[ext-msg] ->", ext_id, "native:", string(data_cstr)[:min(len(string(data_cstr)), 120)])
                 ext.native_handle_message(data_cstr, reply, ctx)
+                fmt.eprintln("[ext-msg] <- native returned")
                 delete(data_cstr)
                 return  // .so owns reply+ctx now
             }
@@ -939,7 +975,7 @@ extension_storage_get :: proc(obj: json.Object) -> cstring {
     keys := obj["keys"]
     result: json.Value
 
-    switch k in keys {
+    #partial switch k in keys {
     case json.Null:
         // Return entire storage
         result = storage_val
@@ -1156,7 +1192,7 @@ zip_parse_central_dir :: proc(data: []u8) -> ([]Zip_Entry, bool) {
         if off + 46 > len(data) do break
         // Verify central dir signature
         if data[off] != 0x50 || data[off+1] != 0x4b ||
-           data[off+2] != 0x01 || data[off+3] != 0x02 do break
+           data[off+2] != 0x01 || data[off+3] != 0x02 { break }
 
         compression := read_u16_le(data[off+10:])
         comp_size := read_u32_le(data[off+20:])
@@ -1190,7 +1226,7 @@ zip_extract_entry :: proc(data: []u8, entry: Zip_Entry) -> []u8 {
 
     // Verify local file header signature
     if data[off] != 0x50 || data[off+1] != 0x4b ||
-       data[off+2] != 0x03 || data[off+3] != 0x04 do return nil
+       data[off+2] != 0x03 || data[off+3] != 0x04 { return nil }
 
     local_fname_len := int(read_u16_le(data[off+26:]))
     local_extra_len := int(read_u16_le(data[off+28:]))

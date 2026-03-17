@@ -65,11 +65,14 @@ foreign engine {
     // User content (extensions)
     engine_add_user_script       :: proc(source: cstring, frames: c.int,
                                          time: c.int, allow: [^]cstring,
-                                         allow_count: c.int) ---
+                                         allow_count: c.int,
+                                         world: cstring) ---
     engine_add_user_style        :: proc(source: cstring, frames: c.int,
                                          allow: [^]cstring,
-                                         allow_count: c.int) ---
+                                         allow_count: c.int,
+                                         world: cstring) ---
     engine_remove_all_user_content :: proc() ---
+    engine_register_ext_world    :: proc(world: cstring) ---
     engine_extension_reply       :: proc(reply: rawptr, ctx: rawptr, json_str: cstring) ---
 
     engine_shutdown          :: proc() ---

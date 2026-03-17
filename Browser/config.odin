@@ -105,7 +105,7 @@ apply_config :: proc(data: []u8) {
         for item in arr {
             if hex_str, sok := item.(json.String); sok {
                 decoded, dok := hex.decode(transmute([]u8)hex_str)
-                if dok == nil && len(decoded) == 32 {
+                if dok && len(decoded) == 32 {
                     key: [32]u8
                     copy(key[:], decoded)
                     append(&ext_trusted_pubkeys, key)

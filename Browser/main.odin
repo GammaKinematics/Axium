@@ -69,7 +69,7 @@ main :: proc() {
         return
     }
     defer display_destroy()
-    register_poll_fd(display_fd(), proc() {})
+    register_poll_fd(i32(display_fd()), proc() {})
 
     // GPU negotiation: engine + GLAD, fallback if either fails
     screen := display_screen_info()
