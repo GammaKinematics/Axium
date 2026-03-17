@@ -10,6 +10,7 @@
 
 #include "config.h"
 #include "InjectedBundleScriptWorld.h"
+#include "JavaScriptEvaluationResult.h"
 #include "WebUserContentController.h"
 #include <WebCore/DOMWrapperWorld.h>
 #include <WebCore/LocalFrame.h>
@@ -206,7 +207,7 @@ static void registerScripts(InjectedBundleScriptWorld& world, const char *json)
 
 static void dispatchMessage(int extIdx, char *json, int len)
 {
-    auto parsed = JSON::Value::parseJSON(String::fromUTF8(json, len));
+    auto parsed = JSON::Value::parseJSON(String::fromUTF8(std::span(json, len)));
     if (!parsed) return;
     auto obj = parsed->asObject();
     if (!obj) return;
@@ -224,13 +225,14 @@ static void dispatchMessage(int extIdx, char *json, int len)
             rh->handler(
                 toJS(toJS(rh->context.get()), val ? val : JSValueMakeNull(rh->context.get())), { });
         }
-        delete rh;
+        rh->~ReplyHandle();
+        WTF::fastFree(rh);
     } else if (!obj->getString("event"_s).isEmpty()) {
         // Push — evaluate in extension's own world
         auto& ext = g_exts[extIdx];
         if (!ext.world) return;
         auto script = makeString("window.__axium_dispatch&&window.__axium_dispatch("_s,
-            String::fromUTF8(json, len), ")"_s);
+            String::fromUTF8(std::span(json, len)), ")"_s);
         Page::forEachPage([&](auto& page) {
             if (auto* frame = page.localMainFrame())
                 frame->script().executeScriptInWorldIgnoringException(
@@ -335,13 +337,15 @@ static bool axiumHostSend(int extIdx, const char *json,
     if (extIdx < 0 || extIdx >= (int)g_exts.size() || g_exts[extIdx].fd < 0)
         return false;
 
-    auto *rh = new ReplyHandle { WTF::move(handler), WTF::move(context) };
+    auto *rh = static_cast<ReplyHandle*>(WTF::fastMalloc(sizeof(ReplyHandle)));
+    new (rh) ReplyHandle { WTF::move(handler), WTF::move(context) };
     auto h = (uintptr_t)rh;
 
     char *frame = g_strdup_printf("{\"h\":%lu,\"type\":\"message\",\"data\":%s}", h, json);
     if (writeFrame(g_exts[extIdx].fd, frame, strlen(frame)) < 0) {
         g_free(frame);
-        delete rh;
+        rh->~ReplyHandle();
+        WTF::fastFree(rh);
         return false;
     }
     g_free(frame);
@@ -380,11 +384,13 @@ bool axiumTryHandleExtension(JSGlobalContextRef ctx,
     if (!jsonRef) return false;
 
     size_t maxLen = JSStringGetMaximumUTF8CStringSize(jsonRef.get());
-    Vector<char> buf(maxLen);
-    JSStringGetUTF8CString(jsonRef.get(), buf.data(), maxLen);
+    char *buf = static_cast<char*>(g_malloc(maxLen));
+    JSStringGetUTF8CString(jsonRef.get(), buf, maxLen);
 
-    return axiumHostSend(extIdx, buf.data(),
+    bool sent = axiumHostSend(extIdx, buf,
         WTF::move(completionHandler), JSRetainPtr { ctx });
+    g_free(buf);
+    return sent;
 }
 
 // Init — called from platformInitializeWebProcess
@@ -451,7 +457,7 @@ void axium_host_init(int count, int *fds)
     for (int i = 0; i < (int)g_exts.size(); i++) {
         if (g_exts[i].fd < 0) continue;
         g_exts[i].watchId = g_unix_fd_add(g_exts[i].fd,
-            G_IO_IN | G_IO_HUP | G_IO_ERR,
+            static_cast<GIOCondition>(G_IO_IN | G_IO_HUP | G_IO_ERR),
             onExtFdReady, GINT_TO_POINTER(i));
     }
 
