@@ -765,15 +765,6 @@ void engine_adblock_set_disabled(bool disabled)
     webkit_web_view_send_message_to_page(wv, msg, NULL, NULL, NULL);
 }
 
-// ---------------------------------------------------------------------------
-// Extension host (stub — returns 0 until UIProcess side is implemented)
-// ---------------------------------------------------------------------------
-
-int axium_get_ext_fds(int** fds)
-{
-    *fds = NULL;
-    return 0;
-}
 
 // ---------------------------------------------------------------------------
 // Downloads
@@ -1127,20 +1118,6 @@ void engine_set_bg(uint32_t rgb, int opacity)
 // User content (extensions)
 // ---------------------------------------------------------------------------
 
-extern void extension_handle_message(const char* json, void* reply, void* ctx);
-extern const uint8_t* extension_serve_file(const char* path, int* out_size, const char** out_mime);
-
-void engine_extension_reply(void* reply_handle, void* ctx_handle, const char* json_str) {
-    WebKitScriptMessageReply* r = (WebKitScriptMessageReply*)reply_handle;
-    JSCContext* c = (JSCContext*)ctx_handle;
-    JSCValue* rv = json_str
-        ? jsc_value_new_string(c, json_str)
-        : jsc_value_new_null(c);
-    webkit_script_message_reply_return_value(r, rv);
-    g_object_unref(rv);
-    webkit_script_message_reply_unref(r);
-    g_object_unref(c);
-}
 
 void engine_add_user_script(const char *source, int inject_frames,
                             int inject_time, const char **allow_list,
@@ -1349,16 +1326,6 @@ static gboolean on_script_message(
         g_object_unref(json_fn);
     }
 
-    // 0. Extension message routing (async — reply comes later via engine_extension_reply)
-    if (json && strstr(json, "\"_axium_ext\"")) {
-        fprintf(stderr, "[engine] dispatching to extension_handle_message\n");
-        extension_handle_message(json,
-            webkit_script_message_reply_ref(reply),
-            (void*)g_object_ref(ctx));
-        g_free(json);
-        return TRUE;
-    }
-
     // 1. Try sync C handlers (history, data-clear)
     char* c_result = json ? history_handle_message(json) : NULL;
     if (!c_result && json)
@@ -1438,19 +1405,6 @@ static void on_axium_uri_scheme(WebKitURISchemeRequest* request, gpointer data)
     if (serve_page_file(request, page_path))
         return;
 
-    // Extension pages: axium://ext/{id}/{file}
-    if (strncmp(page_path, "ext/", 4) == 0) {
-        int size = 0;
-        const char* mime = NULL;
-        const uint8_t* file_data = extension_serve_file(page_path + 4, &size, &mime);
-        if (file_data && size > 0 && mime) {
-            GInputStream* es = g_memory_input_stream_new_from_data(
-                g_memdup2(file_data, size), size, g_free);
-            webkit_uri_scheme_request_finish(request, es, size, mime);
-            g_object_unref(es);
-            return;
-        }
-    }
 
     const char* msg = "<html><body><h1>Not Found</h1></body></html>";
     GInputStream* s = g_memory_input_stream_new_from_data(g_strdup(msg), -1, g_free);

@@ -73,7 +73,6 @@ foreign engine {
                                          world: cstring) ---
     engine_remove_all_user_content :: proc() ---
     engine_register_ext_world    :: proc(world: cstring) ---
-    engine_extension_reply       :: proc(reply: rawptr, ctx: rawptr, json_str: cstring) ---
 
     engine_shutdown          :: proc() ---
 }

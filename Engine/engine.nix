@@ -245,12 +245,19 @@ GSTEOF
     std::optional<WebKit::WebProcessDataStoreParameters> websiteDataStoreParameters;'
 
       # Patch 3: UIProcess — populate extension fds in creation params
+      # 3a: forward-declare at file scope (extern "C" must be at namespace scope)
+      substituteInPlace Source/WebKit/UIProcess/glib/WebProcessPoolGLib.cpp \
+        --replace-fail \
+          'void WebProcessPool::platformInitializeWebProcess(const WebProcessProxy& process, WebProcessCreationParameters& parameters)' \
+          'extern "C" int axium_get_ext_fds(int** fds);
+
+void WebProcessPool::platformInitializeWebProcess(const WebProcessProxy& process, WebProcessCreationParameters& parameters)'
+      # 3b: call it inside the function
       substituteInPlace Source/WebKit/UIProcess/glib/WebProcessPoolGLib.cpp \
         --replace-fail \
           '    parameters.availableInputDevices = availableInputDevices();' \
           '    // Axium: pass extension socketpair fds to WebProcess
     {
-        extern "C" int axium_get_ext_fds(int** fds);
         int* fds = nullptr;
         int count = axium_get_ext_fds(&fds);
         for (int i = 0; i < count; i++)

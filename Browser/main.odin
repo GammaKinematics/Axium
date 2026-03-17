@@ -295,6 +295,7 @@ main :: proc() {
     }
 
     session_save()
+    extension_shutdown()
 
     // Destroy all views before engine_shutdown (deferred above)
     for i in 0..<tab_count {
