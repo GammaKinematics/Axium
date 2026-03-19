@@ -74,8 +74,6 @@ let
     };
   };
 
-  # Static: compile adblock.c to .o (linked into binary, WebKit patched for direct init)
-  # Dynamic: compile adblock.c to .so (WebKit loads via dlopen)
   ext = pkgs.stdenv.mkDerivation {
     pname = "axium-adblock-ext";
     version = "0.1.0";
@@ -91,21 +89,14 @@ let
       pkgs.nghttp2
     ];
 
-    buildPhase = if static then ''
+    buildPhase = ''
       $CC -c -o adblock.o adblock.c \
         $(pkg-config --cflags wpe-web-process-extension-2.0 glib-2.0)
-    '' else ''
-      $CC -shared -fPIC -o libaxium-adblock-ext.so adblock.c \
-        $(pkg-config --cflags --libs wpe-web-process-extension-2.0 glib-2.0) \
-        -L${lib}/lib -laxium_adblock -lpthread -ldl
     '';
 
-    installPhase = if static then ''
+    installPhase = ''
       mkdir -p $out/lib
       cp adblock.o $out/lib/
-    '' else ''
-      mkdir -p $out/lib
-      cp libaxium-adblock-ext.so $out/lib/
     '';
 
     meta = {
@@ -120,10 +111,12 @@ let
 
     dontUnpack = true;
 
-    installPhase = ''
-      mkdir -p $out/share/adblock
+    nativeBuildInputs = [ hostPkgs.binutils ];
 
-      # Concatenate filter lists into a temp file for serialization
+    installPhase = ''
+      mkdir -p $out/lib
+
+      # Concatenate filter lists
       cat \
         ${uassets}/filters/filters.txt \
         ${uassets}/filters/filters-2020.txt \
@@ -148,23 +141,33 @@ let
         ${uassets}/thirdparties/urlhaus-filter/urlhaus-filter-online.txt \
         > filters.txt
 
-      # Peter Lowe's hosts list (needs a title header for the parser)
       echo '! Title: Peter Lowe hosts' >> filters.txt
       cat ${uassets}/thirdparties/pgl.yoyo.org/as/serverlist >> filters.txt
 
-      # Pre-compile engine to .dat (only the .dat is installed)
-      ${lib}/bin/adblock-serialize filters.txt $out/share/adblock/engine.dat
+      # Pre-compile engine
+      ${lib}/bin/adblock-serialize filters filters.txt engine.dat
 
-      # Redirect resources (from uBlock)
-      cp -r ${ublock}/src/web_accessible_resources $out/share/adblock/resources
-      cp ${ublock}/src/js/redirect-resources.js $out/share/adblock/redirect-resources.js
+      # Assemble redirect resources + scriptlets into JSON
+      ${lib}/bin/adblock-serialize resources \
+        ${ublock}/src/web_accessible_resources \
+        ${ublock}/src/js/redirect-resources.js \
+        ${ublock}/src/js/resources/scriptlets.js \
+        resources.json
 
-      # Scriptlets (old-format, from adblock-rust test fixtures)
-      cp ${adblock-rust}/data/test/fake-uBO-files/scriptlets.js $out/share/adblock/scriptlets.js
+      # Embed as ELF objects (pages.nix pattern)
+      objcopy -I binary -O elf64-x86-64 \
+        --rename-section .data=.rodata,alloc,load,readonly,data,contents \
+        engine.dat engine_dat.o
+      objcopy -I binary -O elf64-x86-64 \
+        --rename-section .data=.rodata,alloc,load,readonly,data,contents \
+        resources.json resources_json.o
+
+      ar rcs libadblock-data.a engine_dat.o resources_json.o
+      cp libadblock-data.a $out/lib/
     '';
 
     meta = {
-      description = "Axium Adblock - filter lists and redirect resources";
+      description = "Axium Adblock - embedded filter engine and resources";
       platforms = [ "x86_64-linux" ];
     };
   };
@@ -173,11 +176,12 @@ in {
   inherit lib ext resources;
   sources = [];
 
-  linkFlags = if static then builtins.concatStringsSep " " [
+  linkFlags = builtins.concatStringsSep " " [
     "${ext}/lib/adblock.o"
     "-L${lib}/lib"
     "-laxium_adblock"
-  ] else "";
+    "-Wl,--whole-archive" "${resources}/lib/libadblock-data.a" "-Wl,--no-whole-archive"
+  ];
 
   buildInputs = [];
 }

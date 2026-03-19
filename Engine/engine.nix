@@ -75,19 +75,7 @@ let
       substituteInPlace Source/WebCore/platform/graphics/skia/SkiaPaintingEngine.cpp \
         --replace-fail 'if (!texture->memoryMappedGPUBuffer())' 'if (false) // Axium: memoryMappedGPUBuffer requires USE(GBM)'
 
-    '' + pkgs.lib.optionalString static ''
-      # Axium: unconditional subprocess discovery from executable's parent directory.
-      # Single-binary architecture: WPEWebProcess/WPENetworkProcess are symlinks to axium.
-      # WEBKIT_EXEC_PATH is behind DEVELOPER_MODE — remove the guards so release builds
-      # check the env var and executable's parent dir before falling back to PKGLIBEXECDIR.
-      sed -i '/#if ENABLE(DEVELOPER_MODE)/d' Source/WebKit/Shared/glib/ProcessExecutablePathGLib.cpp
-      sed -i '0,/^#endif$/{/^#endif$/d}' Source/WebKit/Shared/glib/ProcessExecutablePathGLib.cpp
-      sed -i '0,/^#endif$/{/^#endif$/d}' Source/WebKit/Shared/glib/ProcessExecutablePathGLib.cpp
-
-      # Axium: bypass InjectedBundle's g_module_open of libWPEInjectedBundle.so.
-      # The .so is just a trampoline to WebProcessExtensionManager::initialize() which
-      # is already in the binary. Call it directly — required for static musl builds
-      # where dlopen of external .so files doesn't work.
+    '' + ''
       substituteInPlace Source/WebKit/WebProcess/InjectedBundle/glib/InjectedBundleGlib.cpp \
         --replace-fail \
           '    m_platformBundle = g_module_open(FileSystem::fileSystemRepresentation(m_path).data(), G_MODULE_BIND_LOCAL);
@@ -103,8 +91,7 @@ let
     }
 
     initializeFunction(toAPI(this), toAPI(initializationUserData.get()));' \
-          '    // Axium: call extension manager directly — no dlopen.
-    WebProcessExtensionManager::singleton().initialize(this, initializationUserData.get());'
+          '    WebProcessExtensionManager::singleton().initialize(this, initializationUserData.get());'
       # Add required include for WebProcessExtensionManager
       substituteInPlace Source/WebKit/WebProcess/InjectedBundle/glib/InjectedBundleGlib.cpp \
         --replace-fail '#include "WKBundleInitialize.h"' '#include "WebProcessExtensionManager.h"'
@@ -117,9 +104,7 @@ let
       substituteInPlace Source/WebKit/WebProcess/InjectedBundle/API/glib/WebProcessExtensionManager.cpp \
         --replace-fail \
           'namespace WebKit {' \
-          '// Axium: weak default so cmake-built WPEWebProcess links without adblock.o.
-// The real definition in adblock.o overrides this in the final binary.
-extern "C" __attribute__((weak)) void webkit_web_process_extension_initialize_with_user_data(
+          'extern "C" __attribute__((weak)) void webkit_web_process_extension_initialize_with_user_data(
     WebKitWebProcessExtension*, GVariant*) {}
 
 namespace WebKit {'
@@ -138,8 +123,16 @@ namespace WebKit {'
         if (initializeWebProcessExtension(module.get(), userData.get()))
             m_extensionModules.append(module.release());
     }' \
-          '    // Axium: direct call — adblock linked statically, no dlopen.
-    webkit_web_process_extension_initialize_with_user_data(m_extension.get(), userData.get());'
+          '    webkit_web_process_extension_initialize_with_user_data(m_extension.get(), userData.get());'
+
+    '' + pkgs.lib.optionalString static ''
+      # Axium: unconditional subprocess discovery from executable's parent directory.
+      # Single-binary architecture: WPEWebProcess/WPENetworkProcess are symlinks to axium.
+      # WEBKIT_EXEC_PATH is behind DEVELOPER_MODE — remove the guards so release builds
+      # check the env var and executable's parent dir before falling back to PKGLIBEXECDIR.
+      sed -i '/#if ENABLE(DEVELOPER_MODE)/d' Source/WebKit/Shared/glib/ProcessExecutablePathGLib.cpp
+      sed -i '0,/^#endif$/{/^#endif$/d}' Source/WebKit/Shared/glib/ProcessExecutablePathGLib.cpp
+      sed -i '0,/^#endif$/{/^#endif$/d}' Source/WebKit/Shared/glib/ProcessExecutablePathGLib.cpp
       # FindSoup3.cmake: pkg-config version detection fails in cross builds.
       substituteInPlace Source/cmake/FindSoup3.cmake \
         --replace-fail 'set(Soup3_VERSION ''${PC_Soup3_VERSION})' \
@@ -212,117 +205,6 @@ GSTEOF
     setLazyIframeLoadingEnabled(!g_getenv("AXIUM_DISABLE_LAZY_IFRAMES"));
     setSpeculationRulesPrefetchEnabled(!g_getenv("AXIUM_DISABLE_SPECULATIVE_PREFETCH"));'
 
-      # -----------------------------------------------------------------------
-      # Axium: WebProcess extension host patches
-      # -----------------------------------------------------------------------
-
-      # Patch 1: Add extension fd fields to WebProcessCreationParameters.h
-      substituteInPlace Source/WebKit/Shared/WebProcessCreationParameters.h \
-        --replace-fail \
-          '    CString implementationLibraryName;
-#endif
-
-    std::optional<WebProcessDataStoreParameters> websiteDataStoreParameters;' \
-          '    CString implementationLibraryName;
-#endif
-
-    Vector<UnixFileDescriptor> axiumExtensionFDs;
-
-    std::optional<WebProcessDataStoreParameters> websiteDataStoreParameters;'
-
-      # Patch 2: Add serialization entries for new fields
-      substituteInPlace Source/WebKit/Shared/WebProcessCreationParameters.serialization.in \
-        --replace-fail \
-          '    CString implementationLibraryName;
-#endif
-
-    std::optional<WebKit::WebProcessDataStoreParameters> websiteDataStoreParameters;' \
-          '    CString implementationLibraryName;
-#endif
-
-    Vector<WTF::UnixFileDescriptor> axiumExtensionFDs;
-
-    std::optional<WebKit::WebProcessDataStoreParameters> websiteDataStoreParameters;'
-
-      # Patch 3: UIProcess — populate extension fds in creation params
-      # 3a: forward-declare at file scope (extern "C" must be at namespace scope)
-      substituteInPlace Source/WebKit/UIProcess/glib/WebProcessPoolGLib.cpp \
-        --replace-fail \
-          'void WebProcessPool::platformInitializeWebProcess(const WebProcessProxy& process, WebProcessCreationParameters& parameters)' \
-          'extern "C" int axium_get_ext_fds(int** fds);
-
-void WebProcessPool::platformInitializeWebProcess(const WebProcessProxy& process, WebProcessCreationParameters& parameters)'
-      # 3b: call it inside the function
-      substituteInPlace Source/WebKit/UIProcess/glib/WebProcessPoolGLib.cpp \
-        --replace-fail \
-          '    parameters.availableInputDevices = availableInputDevices();' \
-          '    // Axium: pass extension socketpair fds to WebProcess
-    {
-        int* fds = nullptr;
-        int count = axium_get_ext_fds(&fds);
-        for (int i = 0; i < count; i++)
-            parameters.axiumExtensionFDs.append(UnixFileDescriptor { fds[i], UnixFileDescriptor::Adopt });
-    }
-
-    parameters.availableInputDevices = availableInputDevices();'
-
-      # Patch 4: WebProcess — call axium_host_init at end of platformInitializeWebProcess
-      substituteInPlace Source/WebKit/WebProcess/glib/WebProcessGLib.cpp \
-        --replace-fail \
-          '#endif
-}
-
-void WebProcess::platformSetWebsiteDataStoreParameters' \
-          '#endif
-
-    // Axium: initialize extension host with fds from UIProcess
-    if (!parameters.axiumExtensionFDs.isEmpty()) {
-        int count = parameters.axiumExtensionFDs.size();
-        int fds[count];
-        for (int i = 0; i < count; i++)
-            fds[i] = parameters.axiumExtensionFDs[i].release();
-        void axium_host_init(int count, int* fds);
-        axium_host_init(count, fds);
-    }
-}
-
-void WebProcess::platformSetWebsiteDataStoreParameters'
-
-      # Patch 5: Copy AxiumHost.cpp into WebKit source tree and add to build.
-      # This file is compiled as part of WebKit — direct access to all internal APIs.
-      cp ${./axium_host.cpp} Source/WebKit/WebProcess/AxiumHost.cpp
-
-      substituteInPlace Source/WebKit/SourcesWPE.txt \
-        --replace-fail \
-          'WebProcess/glib/WebProcessGLib.cpp' \
-          'WebProcess/AxiumHost.cpp
-WebProcess/glib/WebProcessGLib.cpp'
-
-      # Patch 6: didPostMessage intercept — forward declaration + 3-line intercept
-      substituteInPlace Source/WebKit/WebProcess/UserContent/WebUserContentController.cpp \
-        --replace-fail \
-          'namespace WebKit {
-using namespace WebCore;' \
-          'namespace WebKit {
-using namespace WebCore;
-
-// Axium: forward declaration — defined in WebProcess/AxiumHost.cpp
-bool axiumTryHandleExtension(JSGlobalContextRef, JavaScriptEvaluationResult&, WTF::Function<void(JSC::JSValue, const String&)>&);'
-
-      substituteInPlace Source/WebKit/WebProcess/UserContent/WebUserContentController.cpp \
-        --replace-fail \
-          '        if (!message)
-            return;
-
-        protect(WebProcess::singleton().parentProcessConnection())->sendWithAsyncReply(Messages::WebProcessProxy::DidPostMessage(' \
-          '        if (!message)
-            return;
-
-        // Axium: route extension messages directly, bypass UIProcess
-        if (axiumTryHandleExtension(context.get(), *message, completionHandler))
-            return;
-
-        protect(WebProcess::singleton().parentProcessConnection())->sendWithAsyncReply(Messages::WebProcessProxy::DidPostMessage('
     '';
 
     nativeBuildInputs = with hostPkgs; [
@@ -553,6 +435,7 @@ bool axiumTryHandleExtension(JSGlobalContextRef, JavaScriptEvaluationResult&, WT
         ${pkgs.lib.optionalString static "-DSTATIC"} \
         $(pkg-config --cflags wpe-webkit-2.0 wpe-platform-2.0 glib-2.0 gobject-2.0 sqlite3 \
           ${pkgs.lib.optionalString gpu "libdrm"})
+
     '' + (if static then ''
       $CXX -c subprocess.cpp -o subprocess.o
       $AR rcs libengine.a engine.o subprocess.o

@@ -36,14 +36,6 @@ foreign engine {
     engine_reload            :: proc() ---
     engine_clipboard_notify_external :: proc(formats: [^]cstring, count: c.int) ---
     engine_set_bg            :: proc(rgb: u32, opacity: c.int) ---
-    engine_init_adblock      :: proc(adblock_dir: cstring) ---
-    engine_adblock_set_disabled :: proc(disabled: bool) ---
-    engine_run_javascript    :: proc(view: rawptr, script: cstring) ---
-    engine_evaluate_javascript :: proc(
-        view: rawptr,
-        script: cstring,
-        callback: proc "c" (result: cstring),
-    ) ---
     engine_set_download_dir  :: proc(dir: cstring) ---
     engine_download_cancel   :: proc(uri: cstring) ---
     engine_history_init      :: proc(db_path: cstring) ---
@@ -72,7 +64,14 @@ foreign engine {
                                          allow_count: c.int,
                                          world: cstring) ---
     engine_remove_all_user_content :: proc() ---
-    engine_register_ext_world    :: proc(world: cstring) ---
+
+    // Extension message routing
+    engine_register_ext_handler    :: proc(ext_id: cstring) ---
+    engine_extension_reply         :: proc(reply: rawptr, ctx: rawptr, json_str: cstring) ---
+    engine_run_javascript_in_world :: proc(view: rawptr, script: cstring, world: cstring) ---
+
+    // Adblock
+    engine_adblock_set_enabled :: proc(view: rawptr, enabled: bool) ---
 
     engine_shutdown          :: proc() ---
 }

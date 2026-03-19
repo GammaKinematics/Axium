@@ -105,11 +105,6 @@ main :: proc() {
         lv_opengles_init()
     }
 
-    // Configure adblock (must be before engine_create_view)
-    adblock_dir := posix.getenv("AXIUM_ADBLOCK_DIR")
-    if adblock_dir != nil {
-        engine_init_adblock(adblock_dir)
-    }
 
     config_load()
     site_settings_load()

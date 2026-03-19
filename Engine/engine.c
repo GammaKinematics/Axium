@@ -7,11 +7,10 @@
 #include <sqlite3.h>
 #include "pages.h"
 
+#include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-typedef void (*engine_js_result_fn)(const char* result);
 
 // ---------------------------------------------------------------------------
 // GType forward declarations
@@ -402,53 +401,7 @@ static char* g_tls_allowed_hosts[64];
 static int g_tls_allowed_count = 0;
 
 // ---------------------------------------------------------------------------
-// JavaScript
-// ---------------------------------------------------------------------------
-
-void engine_run_javascript(void* view, const char* script)
-{
-    WebKitWebView* wv = view ? (WebKitWebView*)view : g_active_view;
-    if (!wv || !script) return;
-    webkit_web_view_evaluate_javascript(wv, script, -1, NULL, NULL, NULL, NULL, NULL);
-}
-
-static void js_eval_finished(GObject* source, GAsyncResult* result, gpointer user_data)
-{
-    engine_js_result_fn callback = (engine_js_result_fn)user_data;
-    GError* error = NULL;
-    JSCValue* value = webkit_web_view_evaluate_javascript_finish(
-        WEBKIT_WEB_VIEW(source), result, &error);
-
-    if (error) {
-        g_clear_error(&error);
-        if (callback) callback(NULL);
-        return;
-    }
-
-    if (value && jsc_value_is_string(value)) {
-        char* str = jsc_value_to_string(value);
-        if (callback) callback(str);
-        g_free(str);
-    } else {
-        if (callback) callback(NULL);
-    }
-
-    if (value) g_object_unref(value);
-}
-
-void engine_evaluate_javascript(void* view, const char* script, engine_js_result_fn callback)
-{
-    WebKitWebView* wv = view ? (WebKitWebView*)view : g_active_view;
-    if (!wv || !script) {
-        if (callback) callback(NULL);
-        return;
-    }
-    webkit_web_view_evaluate_javascript(wv, script, -1, NULL, NULL, NULL,
-                                        js_eval_finished, (gpointer)callback);
-}
-
-// ---------------------------------------------------------------------------
-// Privacy, Permissions, TLS, Adblock
+// Privacy, Permissions, TLS
 // ---------------------------------------------------------------------------
 
 static WebKitCookieAcceptPolicy cookie_policy_to_webkit(int policy)
@@ -724,47 +677,91 @@ static gboolean on_query_permission_state(WebKitWebView* view,
     return TRUE;
 }
 
-static char* g_adblock_dir = NULL;
+// ---------------------------------------------------------------------------
+// Extension message handlers — per-extension WebKit script message routing
+// ---------------------------------------------------------------------------
 
-static void on_initialize_web_process_extensions(WebKitWebContext* context,
-                                                  gpointer data)
+extern void extension_handle_message(const char *ext_id, const char *payload,
+                                      void *reply, void *ctx);
+
+static gboolean on_ext_script_message(
+    WebKitUserContentManager *manager,
+    JSCValue *message,
+    WebKitScriptMessageReply *reply,
+    gpointer user_data)
 {
-    (void)data;
-    if (g_adblock_dir)
-        webkit_web_context_set_web_process_extensions_initialization_user_data(
-            context, g_variant_new_string(g_adblock_dir));
+    (void)manager;
+    const char *ext_id = (const char *)user_data;
+
+    JSCContext *ctx = jsc_value_get_context(message);
+    char *json;
+    if (jsc_value_is_string(message)) {
+        json = jsc_value_to_string(message);
+    } else {
+        JSCValue *json_fn = jsc_context_evaluate(ctx, "JSON.stringify", -1);
+        JSCValue *json_val = jsc_value_function_call(json_fn, JSC_TYPE_VALUE, message, G_TYPE_NONE);
+        json = jsc_value_to_string(json_val);
+        g_object_unref(json_val);
+        g_object_unref(json_fn);
+    }
+
+    // Ref-hold reply + ctx — Odin/.so calls engine_extension_reply when done
+    extension_handle_message(ext_id, json,
+                              webkit_script_message_reply_ref(reply),
+                              g_object_ref(ctx));
+    g_free(json);
+    return TRUE;
 }
 
-void engine_init_adblock(const char* adblock_dir)
+void engine_register_ext_handler(const char *ext_id)
 {
-    if (!adblock_dir)
-        return;
+    if (!g_content_manager || !ext_id) return;
 
-    g_adblock_dir = g_strdup(adblock_dir);
+    char *world = g_strdup_printf("axium-ext-%s", ext_id);
+    webkit_user_content_manager_register_script_message_handler_with_reply(
+        g_content_manager, ext_id, world);
+    g_free(world);
 
-    WebKitWebContext* ctx = webkit_web_context_get_default();
-
-    // Dynamic builds: extension .so loaded by WebKit via dlopen.
-    // Static builds: patches bypass this (direct call, no dlopen).
-    const char* ext_dir = getenv("AXIUM_EXT_DIR");
-    if (ext_dir)
-        webkit_web_context_set_web_process_extensions_directory(ctx, ext_dir);
-
-    g_signal_connect(ctx, "initialize-web-process-extensions",
-                     G_CALLBACK(on_initialize_web_process_extensions), NULL);
+    char *signal = g_strdup_printf("script-message-with-reply-received::%s", ext_id);
+    g_signal_connect(g_content_manager, signal,
+                     G_CALLBACK(on_ext_script_message), g_strdup(ext_id));
+    g_free(signal);
 }
 
-void engine_adblock_set_disabled(bool disabled)
+void engine_extension_reply(void *reply_handle, void *ctx_handle, const char *json_str)
 {
-    WebKitWebView* wv = g_active_view;
+    WebKitScriptMessageReply *r = (WebKitScriptMessageReply *)reply_handle;
+    JSCContext *c = (JSCContext *)ctx_handle;
+    JSCValue *rv = json_str
+        ? jsc_value_new_string(c, json_str)
+        : jsc_value_new_null(c);
+    webkit_script_message_reply_return_value(r, rv);
+    g_object_unref(rv);
+    webkit_script_message_reply_unref(r);
+    g_object_unref(c);
+}
+
+void engine_run_javascript_in_world(void *view, const char *script, const char *world_name)
+{
+    if (!view || !script || !world_name) return;
+    webkit_web_view_evaluate_javascript(
+        (WebKitWebView *)view, script, -1, world_name, NULL, NULL, NULL, NULL);
+}
+
+// ---------------------------------------------------------------------------
+// Adblock — per-site toggle (UIProcess → WebProcess message)
+// ---------------------------------------------------------------------------
+
+void engine_adblock_set_enabled(void* view, bool enabled)
+{
+    WebKitWebView* wv = (WebKitWebView*)view;
     if (!wv) return;
 
     WebKitUserMessage* msg = webkit_user_message_new(
-        "adblock-set-disabled",
-        g_variant_new_boolean(disabled));
+        "adblock-set-enabled",
+        g_variant_new_boolean(enabled));
     webkit_web_view_send_message_to_page(wv, msg, NULL, NULL, NULL);
 }
-
 
 // ---------------------------------------------------------------------------
 // Downloads
@@ -1158,13 +1155,6 @@ void engine_add_user_style(const char *source, int inject_frames,
     g_free(wk_allow);
 }
 
-void engine_register_ext_world(const char *world_name)
-{
-    if (!g_content_manager || !world_name) return;
-    webkit_user_content_manager_register_script_message_handler_with_reply(
-        g_content_manager, "axium", world_name);
-}
-
 void engine_remove_all_user_content(void)
 {
     if (!g_content_manager) return;
@@ -1449,18 +1439,13 @@ static void on_uri_changed(WebKitWebView* view, GParamSpec* pspec, gpointer data
     webkit_settings_set_enable_webrtc(settings, (resp.flags & (1 << 2)) != 0);
     webkit_settings_set_enable_webgl(settings, (resp.flags & (1 << 3)) != 0);
     webkit_settings_set_enable_media_stream(settings, (resp.flags & (1 << 4)) != 0);
+    engine_adblock_set_enabled((void*)view, (resp.flags & (1 << 5)) != 0);
 
     int autoplay = (resp.flags >> 6) & 3;
     webkit_settings_set_media_playback_requires_user_gesture(settings, autoplay < 2);
 
     if (resp.user_agent && resp.user_agent[0])
         webkit_settings_set_user_agent(settings, resp.user_agent);
-
-    // Adblock -- send enable/disable to web process extension
-    bool adblock = (resp.flags & (1 << 5)) != 0;
-    WebKitUserMessage* msg = webkit_user_message_new(
-        "adblock-set-disabled", g_variant_new_boolean(!adblock));
-    webkit_web_view_send_message_to_page(view, msg, NULL, NULL, NULL);
 }
 
 static void on_title_changed(WebKitWebView* view, GParamSpec* pspec, gpointer data)
@@ -2154,8 +2139,6 @@ void engine_shutdown(void)
     g_active_view = NULL;
     g_clear_object(&g_ephemeral_session);
     g_clear_object(&g_display);
-    g_free(g_adblock_dir);
-    g_adblock_dir = NULL;
     g_free(g_download_dir);
     g_download_dir = NULL;
     g_download_count = 0;

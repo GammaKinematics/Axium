@@ -5,10 +5,6 @@
 use adblock::lists::ParseOptions;
 use adblock::request::Request;
 use adblock::Engine;
-use adblock::resources::resource_assembler::{
-    assemble_web_accessible_resources,
-    assemble_scriptlet_resources,
-};
 use std::collections::HashSet;
 use std::ffi::{c_char, CStr, CString};
 use std::ptr;
@@ -234,55 +230,40 @@ pub unsafe extern "C" fn adblock_result_free(result: *mut AdblockResult) {
 }
 
 // ---------------------------------------------------------------------------
-// Resource loading from files (redirect resources + scriptlets)
+// Resource loading
 // ---------------------------------------------------------------------------
 
-/// Load redirect resources and scriptlets from disk into the engine.
+/// Load pre-assembled resources from a JSON byte buffer into the engine.
+///
+/// The JSON must be a serialized `Vec<Resource>` (produced at build time by
+/// assembling web_accessible_resources + scriptlets).  Need not be
+/// null-terminated — length is given explicitly.
 ///
 /// # Safety
 /// - `engine` must be a valid pointer to an AdblockEngine
-/// - `resource_dir` must be a valid null-terminated path to the web_accessible_resources directory
-/// - `redirect_resources` must be a valid null-terminated path to redirect-resources.js
-/// - `scriptlets` may be null; if non-null, must be a valid path to scriptlets.js
+/// - `json` must be a valid pointer to `json_len` bytes of UTF-8 JSON
 #[no_mangle]
-pub unsafe extern "C" fn adblock_engine_load_resources(
+pub unsafe extern "C" fn adblock_engine_load_resources_json(
     engine: *mut AdblockEngine,
-    resource_dir: *const c_char,
-    redirect_resources: *const c_char,
-    scriptlets: *const c_char,
+    json: *const u8,
+    json_len: usize,
 ) -> bool {
-    if engine.is_null() || resource_dir.is_null() || redirect_resources.is_null() {
+    if engine.is_null() || json.is_null() || json_len == 0 {
         return false;
     }
 
-    let engine = &mut *engine;
-
-    let resource_dir = match CStr::from_ptr(resource_dir).to_str() {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
-    let redirect_path = match CStr::from_ptr(redirect_resources).to_str() {
+    let json_bytes = std::slice::from_raw_parts(json, json_len);
+    let json_str = match std::str::from_utf8(json_bytes) {
         Ok(s) => s,
         Err(_) => return false,
     };
 
-    #[allow(deprecated)]
-    let mut resources = assemble_web_accessible_resources(
-        &std::path::Path::new(resource_dir),
-        &std::path::Path::new(redirect_path),
-    );
+    let resources: Vec<adblock::resources::Resource> = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(_) => return false,
+    };
 
-    if !scriptlets.is_null() {
-        if let Ok(scriptlets_path) = CStr::from_ptr(scriptlets).to_str() {
-            #[allow(deprecated)]
-            let scriptlet_resources = assemble_scriptlet_resources(
-                &std::path::Path::new(scriptlets_path),
-            );
-            resources.extend(scriptlet_resources);
-        }
-    }
-
-    engine.engine.use_resources(resources);
+    (*engine).engine.use_resources(resources);
     true
 }
 

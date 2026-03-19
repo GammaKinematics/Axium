@@ -170,8 +170,7 @@
             pkgs = buildPkgs;
             inherit hostPkgs engine pages generatedBindings
                     lvgl lvglBindings themeOdin fontSources iconFont edgeSources
-                    adblock
-                    display detour static gpu;
+                    adblock display detour static gpu;
           };
           inherit engine lvgl adblock gstreamer display detour;
         };
@@ -189,8 +188,8 @@
         inherit (dynamicBuild.engine) shim pages;
         dynamic-webkit = dynamicBuild.engine.webkit;
         inherit (dynamicBuild.adblock) lib resources;
-        static-webkit = staticBuild.engine.webkit;
         static-adblock-lib = staticBuild.adblock.lib;
+        static-webkit = staticBuild.engine.webkit;
         static-gstreamer = staticBuild.gstreamer.drv;
       };
 

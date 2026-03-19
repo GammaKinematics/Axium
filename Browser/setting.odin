@@ -159,9 +159,9 @@ pack_nav_response :: proc(uri: string) -> Engine_Nav_Response {
 
     ua_cstr: cstring = nil
     if s.user_agent != "" {
-        ua_cstr = strings.clone_to_cstring(s.user_agent)
+        ua_cstr = strings.clone_to_cstring(s.user_agent, context.temp_allocator)
     } else if default_settings.user_agent != "" {
-        ua_cstr = strings.clone_to_cstring(default_settings.user_agent)
+        ua_cstr = strings.clone_to_cstring(default_settings.user_agent, context.temp_allocator)
     }
 
     return Engine_Nav_Response{ user_agent = ua_cstr, flags = transmute(u8)s.content }

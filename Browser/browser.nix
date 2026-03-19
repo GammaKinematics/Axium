@@ -63,11 +63,6 @@ pkgs.stdenv.mkDerivation {
       cp "$f" ./
     done
 
-    # Copy adblock sources
-    for f in ${builtins.concatStringsSep " " adblock.sources}; do
-      cp "$f" ./
-    done
-
     # Copy engine Odin bindings
     cp ${engine.odinBindings} ./engine.odin
 
@@ -112,9 +107,9 @@ pkgs.stdenv.mkDerivation {
         -L${lvgl.drv}/lib -llvgl \
         ${lvgl.linkFlags} \
         $(pkg-config --libs wpe-webkit-2.0 wpe-platform-2.0 glib-2.0 gobject-2.0) \
-        ${adblock.linkFlags} \
         -Wl,--whole-archive -lpages -Wl,--no-whole-archive \
         -Wl,--export-dynamic-symbol-list=export_syms.ld \
+        ${adblock.linkFlags} \
         -lsqlite3 -lm -lstdc++ ${pkgs.lib.optionalString gpu "-ldrm"}"
   '');
 
@@ -134,12 +129,10 @@ export WEBKIT_EXEC_PATH="$(dirname "$0")"
 export GIO_EXTRA_MODULES=${pkgs.glib-networking}/lib/gio/modules
 export GIO_USE_TLS=gnutls
 export GST_PLUGIN_PATH=${pkgs.gst_all_1.gst-plugins-base}/lib/gstreamer-1.0:${pkgs.gst_all_1.gst-plugins-good}/lib/gstreamer-1.0:${pkgs.gst_all_1.gst-plugins-bad}/lib/gstreamer-1.0
-export AXIUM_EXT_DIR=${adblock.ext}/lib
 ''}
 export SSL_CERT_FILE=${hostPkgs.cacert}/etc/ssl/certs/ca-bundle.crt
 export GNUTLS_SYSTEM_TRUST_FILE=${hostPkgs.cacert}/etc/ssl/certs/ca-bundle.crt
 export WEBKIT_SKIA_ENABLE_CPU_RENDERING=1
-export AXIUM_ADBLOCK_DIR="''${AXIUM_ADBLOCK_DIR:-${adblock.resources}/share/adblock}"
 exec "$(dirname "$0")/.axium-unwrapped" "$@"
 WRAPPER
     chmod +x $out/bin/axium

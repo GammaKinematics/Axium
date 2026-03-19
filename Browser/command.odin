@@ -57,7 +57,7 @@ execute_command :: proc(cmd: string, pressed: bool = true) {
     case "favorites":   if pressed do favorite_trigger()
     case "history":     if pressed do engine_view_go_to(tab_entries[active_tab].view, "axium://history")
     case "downloads":   if pressed do download_trigger()
-    case "extensions":       if pressed do extension_trigger()
+    // case "extensions":       if pressed do extension_trigger()
     case:
         if cb, ok := command_registry[cmd]; ok {
             if pressed do cb()
