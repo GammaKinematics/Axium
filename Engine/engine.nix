@@ -104,7 +104,7 @@ let
       substituteInPlace Source/WebKit/WebProcess/InjectedBundle/API/glib/WebProcessExtensionManager.cpp \
         --replace-fail \
           'namespace WebKit {' \
-          'extern "C" __attribute__((weak)) void webkit_web_process_extension_initialize_with_user_data(
+          'extern "C" __attribute__((weak, visibility("default"))) void webkit_web_process_extension_initialize_with_user_data(
     WebKitWebProcessExtension*, GVariant*) {}
 
 namespace WebKit {'

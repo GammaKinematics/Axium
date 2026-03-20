@@ -9,4 +9,5 @@
   unregister_poll_fd;
   register_command;
   active_tab;
+  webkit_web_process_extension_initialize_with_user_data;
 };
