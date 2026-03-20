@@ -133,6 +133,8 @@ namespace WebKit {'
       sed -i '/#if ENABLE(DEVELOPER_MODE)/d' Source/WebKit/Shared/glib/ProcessExecutablePathGLib.cpp
       sed -i '0,/^#endif$/{/^#endif$/d}' Source/WebKit/Shared/glib/ProcessExecutablePathGLib.cpp
       sed -i '0,/^#endif$/{/^#endif$/d}' Source/WebKit/Shared/glib/ProcessExecutablePathGLib.cpp
+
+    '' + pkgs.lib.optionalString static ''
       # FindSoup3.cmake: pkg-config version detection fails in cross builds.
       substituteInPlace Source/cmake/FindSoup3.cmake \
         --replace-fail 'set(Soup3_VERSION ''${PC_Soup3_VERSION})' \
