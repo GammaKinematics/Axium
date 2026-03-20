@@ -14,19 +14,34 @@
 //   __axiumHiddenSelectors(classesJson, idsJson, exceptionsJson) -> CSS string
 
 (function() {
+  console.log('[adblock.js] content script running on', location.href);
   var raw;
-  try { raw = __axiumCosmeticFull(location.href); } catch(e) { return; }
-  if (!raw) return;
+  try { raw = __axiumCosmeticFull(location.href); } catch(e) {
+    console.error('[adblock.js] __axiumCosmeticFull threw:', e);
+    return;
+  }
+  if (!raw) { console.log('[adblock.js] __axiumCosmeticFull returned null'); return; }
   var res;
-  try { res = JSON.parse(raw); } catch(e) { return; }
+  try { res = JSON.parse(raw); } catch(e) {
+    console.error('[adblock.js] failed to parse cosmetic result:', e);
+    return;
+  }
+  console.log('[adblock.js] cosmetic result:', JSON.stringify({
+    generichide: res.generichide,
+    exceptions: res.exceptions ? res.exceptions.length : 0,
+    procedural: res.procedural ? res.procedural.length : 0
+  }));
 
   // 1. Procedural cosmetic filters
   if (res.procedural) {
-    try { __axiumRunProcedural(res.procedural); } catch(e) {}
+    console.log('[adblock.js] running', res.procedural.length, 'procedural filters');
+    try { __axiumRunProcedural(res.procedural); } catch(e) {
+      console.error('[adblock.js] procedural error:', e);
+    }
   }
 
   // 2. MutationObserver 2nd-pass (hidden class/id selectors)
-  if (res.generichide) return;
+  if (res.generichide) { console.log('[adblock.js] generichide=true, skipping observer'); return; }
 
   var style = document.getElementById('axium-cosmetic');
   if (!style) {
@@ -67,6 +82,7 @@
 
   // Initial scan
   var initial = scan(document.documentElement);
+  console.log('[adblock.js] initial scan: classes=' + initial[0].length + ' ids=' + initial[1].length);
   flush(initial[0], initial[1]);
 
   // Observe mutations

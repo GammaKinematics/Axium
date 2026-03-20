@@ -43,10 +43,9 @@ flush_cb :: proc "c" (disp: ^lv_display_t, area: ^lv_area_t, px: [^]u8) {
 }
 
 main :: proc() {
-    // Static builds: single-binary dispatch. WPEWebProcess/WPENetworkProcess are
-    // symlinks to axium — argv[0] determines which subprocess entry point to run.
-    // Dynamic builds: WebKit's own executables handle subprocesses.
-    when STATIC {
+    // Single-binary dispatch. WPEWebProcess/WPENetworkProcess are symlinks to axium —
+    // argv[0] determines which subprocess entry point to run.
+    {
         args := runtime.args__
         if len(args) > 0 {
             prog := string(args[0])

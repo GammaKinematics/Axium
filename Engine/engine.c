@@ -715,7 +715,12 @@ static gboolean on_ext_script_message(
 
 void engine_register_ext_handler(const char *ext_id)
 {
-    if (!g_content_manager || !ext_id) return;
+    if (!g_content_manager || !ext_id) {
+        fprintf(stderr, "[engine] register_ext_handler: SKIPPED (mgr=%p id=%s)\n",
+                (void*)g_content_manager, ext_id ?: "(null)");
+        return;
+    }
+    fprintf(stderr, "[engine] register_ext_handler: %s\n", ext_id);
 
     char *world = g_strdup_printf("axium-ext-%s", ext_id);
     webkit_user_content_manager_register_script_message_handler_with_reply(
@@ -1120,7 +1125,14 @@ void engine_add_user_script(const char *source, int inject_frames,
                             int inject_time, const char **allow_list,
                             int allow_count, const char *world_name)
 {
-    if (!g_content_manager || !source) return;
+    if (!g_content_manager || !source) {
+        fprintf(stderr, "[engine] add_user_script: SKIPPED (mgr=%p src=%p)\n",
+                (void*)g_content_manager, (void*)source);
+        return;
+    }
+    fprintf(stderr, "[engine] add_user_script: world=%s frames=%d time=%d allow=%d len=%zu\n",
+            world_name ?: "(default)", inject_frames, inject_time, allow_count,
+            strlen(source));
     const char **wk_allow = NULL;
     if (allow_count > 0) {
         wk_allow = g_new0(const char*, allow_count + 1);

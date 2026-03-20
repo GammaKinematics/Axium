@@ -125,7 +125,7 @@ namespace WebKit {'
     }' \
           '    webkit_web_process_extension_initialize_with_user_data(m_extension.get(), userData.get());'
 
-    '' + pkgs.lib.optionalString static ''
+    '' + ''
       # Axium: unconditional subprocess discovery from executable's parent directory.
       # Single-binary architecture: WPEWebProcess/WPENetworkProcess are symlinks to axium.
       # WEBKIT_EXEC_PATH is behind DEVELOPER_MODE — remove the guards so release builds
@@ -436,12 +436,11 @@ GSTEOF
         $(pkg-config --cflags wpe-webkit-2.0 wpe-platform-2.0 glib-2.0 gobject-2.0 sqlite3 \
           ${pkgs.lib.optionalString gpu "libdrm"})
 
-    '' + (if static then ''
-      $CXX -c subprocess.cpp -o subprocess.o
+    '' + ''
+      $CXX -c subprocess.cpp -o subprocess.o \
+        ${pkgs.lib.optionalString static "-DSTATIC"}
       $AR rcs libengine.a engine.o subprocess.o
-    '' else ''
-      $AR rcs libengine.a engine.o
-    '');
+    '';
 
     installPhase = ''
       mkdir -p $out/lib

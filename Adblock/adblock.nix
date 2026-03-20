@@ -175,6 +175,7 @@ let
 in {
   inherit lib ext resources;
   sources = [];
+  contentScript = ./adblock.js;
 
   linkFlags = builtins.concatStringsSep " " [
     "${ext}/lib/adblock.o"

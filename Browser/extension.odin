@@ -35,7 +35,7 @@ extensions: [dynamic]Ext_Entry
 // Adblock content script (embedded, registered in isolated world)
 // ---------------------------------------------------------------------------
 
-_adblock_js := #load("../Adblock/adblock.js")
+_adblock_js := #load("adblock.js")
 
 // ---------------------------------------------------------------------------
 // Init
@@ -43,6 +43,7 @@ _adblock_js := #load("../Adblock/adblock.js")
 
 extension_init :: proc() {
     // Register adblock content script in isolated "adblock" world
+    fmt.eprintln("[ext] registering adblock.js content script (", len(_adblock_js), "bytes )")
     adblock_js := strings.clone_to_cstring(string(_adblock_js))
     defer delete(adblock_js)
     engine_add_user_script(adblock_js, 1, 1, nil, 0, "adblock")  // all frames, document_end
@@ -271,6 +272,8 @@ extension_load :: proc(filepath: string) {
     append(&extensions, ext_entry)
     ext := &extensions[len(extensions) - 1]
 
+    fmt.eprintln("[ext]", ext.name, "— id:", ext.id)
+
     // --- Register message handler in engine.c (ext_id as handler name) ---
 
     ext_id_c := strings.clone_to_cstring(ext.id)
@@ -281,6 +284,9 @@ extension_load :: proc(filepath: string) {
 
     cs_arr := mobj["content_scripts"].(json.Array) or_else nil
     war_arr := mobj["web_accessible_resources"].(json.Array) or_else nil
+    fmt.eprintln("[ext]  ", ext.id, "— content_scripts:", len(cs_arr) if cs_arr != nil else 0,
+                 "war:", len(war_arr) if war_arr != nil else 0,
+                 "i18n_keys:", len(msgs))
 
     world_name := strings.clone_to_cstring(fmt.tprintf("axium-ext-%s", ext.id))
     defer delete(world_name)
@@ -333,19 +339,23 @@ extension_load :: proc(filepath: string) {
     // All browser.* API calls collapse into the same postMessage pipe.
     // The .so extension receives raw JSON and handles it however it wants.
     strings.write_string(&shim,
-`var browser=window.browser||{};
+`console.log('[ext-shim] loaded for',_ext_id,'assets:',Object.keys(_assets).length,'i18n:',Object.keys(_msgs).length);
+var browser=window.browser||{};
 browser.runtime=browser.runtime||{};
 browser.runtime.id=_ext_id;
 browser.runtime.getURL=function(p){return _assets[p]||p};
 browser.runtime.sendMessage=function(msg){
-return window.webkit.messageHandlers[_ext_id].postMessage(
-JSON.stringify(msg)
-).then(function(r){try{return JSON.parse(r)}catch(e){return r}});
+console.log('[ext-shim]',_ext_id,'sendMessage:',JSON.stringify(msg).substring(0,120));
+var h=window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers[_ext_id];
+if(!h){console.error('[ext-shim]',_ext_id,'NO messageHandler registered!');return Promise.reject('no handler');}
+return h.postMessage(JSON.stringify(msg))
+.then(function(r){try{return JSON.parse(r)}catch(e){return r}});
 };
 browser.runtime.onMessage={_ls:[],addListener:function(fn){this._ls.push(fn);},
 removeListener:function(fn){var i=this._ls.indexOf(fn);if(i>=0)this._ls.splice(i,1);}};
 window.__axium_dispatch=function(msg){
 try{var m=typeof msg==="string"?JSON.parse(msg):msg;}catch(e){return;}
+console.log('[ext-shim]',_ext_id,'dispatch:',JSON.stringify(m).substring(0,120),'listeners:',browser.runtime.onMessage._ls.length);
 browser.runtime.onMessage._ls.forEach(function(fn){fn(m);});
 };
 browser.storage={local:{
@@ -393,6 +403,8 @@ window.chrome=browser;
 
         run_at := cs_obj["run_at"].(json.String) or_else "document_end"
         inject_time: c.int = 0 if run_at == "document_start" else 1
+        fmt.eprintln("[ext]   content_script: all_urls=", all_urls, "allow=", len(allow),
+                     "run_at=", run_at)
 
         if js_arr, jaok := cs_obj["js"].(json.Array); jaok {
             for js_val in js_arr {
@@ -400,6 +412,7 @@ window.chrome=browser;
                 if js_file == "" do continue
                 src := ext_extract_file(zip_data, zip_entries, js_file)
                 if src == nil { fmt.eprintln("[ext]   MISSING js:", js_file); continue }
+                fmt.eprintln("[ext]   + js:", js_file, "(", len(src), "bytes )")
                 cstr := strings.clone_to_cstring(string(src)); delete(src)
                 engine_add_user_script(cstr, 1, inject_time, allow_ptr, allow_count, world_name)
                 delete(cstr)
@@ -410,7 +423,8 @@ window.chrome=browser;
                 css_file := css_val.(json.String) or_else ""
                 if css_file == "" do continue
                 src := ext_extract_file(zip_data, zip_entries, css_file)
-                if src == nil do continue
+                if src == nil { fmt.eprintln("[ext]   MISSING css:", css_file); continue }
+                fmt.eprintln("[ext]   + css:", css_file, "(", len(src), "bytes )")
                 css_str := ext_substitute_messages(string(src), msgs); delete(src)
                 cstr := strings.clone_to_cstring(css_str); delete(css_str)
                 engine_add_user_style(cstr, 1, allow_ptr, allow_count, world_name)
@@ -490,12 +504,19 @@ extension_handle_message :: proc "c" (c_ext_id: cstring, c_payload: cstring, rep
     }
 
     ext_id := string(c_ext_id)
+    payload_str := string(c_payload)
+    // Truncate for logging to avoid spam
+    log_payload := payload_str[:min(len(payload_str), 120)] if len(payload_str) > 0 else ""
+    fmt.eprintln("[ext] message:", ext_id, "←", log_payload)
+
     for &ext in extensions {
         if ext.id != ext_id do continue
         if ext.native_handle_message != nil {
+            fmt.eprintln("[ext]   → native handler")
             ext.native_handle_message(c_payload, reply, ctx)
             return  // .so owns reply+ctx — calls engine_extension_reply when done
         }
+        fmt.eprintln("[ext]   → no native handler, replying null")
         break
     }
 

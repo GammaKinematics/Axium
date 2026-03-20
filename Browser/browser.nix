@@ -63,6 +63,9 @@ pkgs.stdenv.mkDerivation {
       cp "$f" ./
     done
 
+    # Copy adblock content script
+    cp ${adblock.contentScript} ./adblock.js
+
     # Copy engine Odin bindings
     cp ${engine.odinBindings} ./engine.odin
 
@@ -123,9 +126,8 @@ pkgs.stdenv.mkDerivation {
   postFixup = ''
     cat > $out/bin/axium << 'WRAPPER'
 #!/bin/sh
-${if static then ''
 export WEBKIT_EXEC_PATH="$(dirname "$0")"
-'' else ''
+${pkgs.lib.optionalString (!static) ''
 export GIO_EXTRA_MODULES=${pkgs.glib-networking}/lib/gio/modules
 export GIO_USE_TLS=gnutls
 export GST_PLUGIN_PATH=${pkgs.gst_all_1.gst-plugins-base}/lib/gstreamer-1.0:${pkgs.gst_all_1.gst-plugins-good}/lib/gstreamer-1.0:${pkgs.gst_all_1.gst-plugins-bad}/lib/gstreamer-1.0
@@ -136,10 +138,8 @@ export WEBKIT_SKIA_ENABLE_CPU_RENDERING=1
 exec "$(dirname "$0")/.axium-unwrapped" "$@"
 WRAPPER
     chmod +x $out/bin/axium
-${pkgs.lib.optionalString static ''
     ln -sf .axium-unwrapped $out/bin/WPEWebProcess
     ln -sf .axium-unwrapped $out/bin/WPENetworkProcess
-''}
   '';
 
   meta = {

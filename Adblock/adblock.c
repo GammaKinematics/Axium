@@ -256,10 +256,16 @@ on_world_window_cleared(WebKitScriptWorld *world,
                          gpointer           data)
 {
     (void)page; (void)data;
-    if (!g_engine || g_disabled) return;
+    if (!g_engine || g_disabled) {
+        fprintf(stderr, "[adblock] window-object-cleared: skipped (engine=%p disabled=%d)\n",
+                (void*)g_engine, g_disabled);
+        return;
+    }
+
+    fprintf(stderr, "[adblock] window-object-cleared: registering JSC callbacks\n");
 
     JSCContext* ctx = webkit_frame_get_js_context_for_script_world(frame, world);
-    if (!ctx) return;
+    if (!ctx) { fprintf(stderr, "[adblock] window-object-cleared: no JSC context!\n"); return; }
 
     JSCValue* hs_fn = jsc_value_new_function_variadic(ctx,
         "__axiumHiddenSelectors",
@@ -284,13 +290,22 @@ on_document_loaded(WebKitWebPage *page, gpointer data)
 {
     (void)data;
 
-    if (!g_engine) return;
-    if (g_disabled) return;
+    if (!g_engine) { fprintf(stderr, "[adblock] document-loaded: no engine\n"); return; }
+    if (g_disabled) { fprintf(stderr, "[adblock] document-loaded: disabled\n"); return; }
 
     const char* page_url = webkit_web_page_get_uri(page);
     if (!page_url) return;
+    fprintf(stderr, "[adblock] document-loaded: %s\n", page_url);
 
     CosmeticResources resources = adblock_url_cosmetic_resources(g_engine, page_url);
+    fprintf(stderr, "[adblock]   hide_selectors: %s\n",
+            resources.hide_selectors ? "yes" : "none");
+    fprintf(stderr, "[adblock]   injected_script: %s\n",
+            resources.injected_script ? "yes" : "none");
+    fprintf(stderr, "[adblock]   procedural: %s\n",
+            resources.procedural_actions ? "yes" : "none");
+    fprintf(stderr, "[adblock]   generichide: %s\n",
+            resources.generichide ? "true" : "false");
 
     WebKitFrame* frame = webkit_web_page_get_main_frame(page);
     if (!frame) {
@@ -364,12 +379,16 @@ on_user_message_received(WebKitWebPage    *page,
     (void)data;
 
     const char* name = webkit_user_message_get_name(message);
+    fprintf(stderr, "[adblock] user-message: %s\n", name ?: "(null)");
     if (g_strcmp0(name, "adblock-set-enabled") != 0)
         return FALSE;
 
     GVariant* params = webkit_user_message_get_parameters(message);
-    if (params && g_variant_is_of_type(params, G_VARIANT_TYPE_BOOLEAN))
-        g_disabled = !g_variant_get_boolean(params);
+    if (params && g_variant_is_of_type(params, G_VARIANT_TYPE_BOOLEAN)) {
+        gboolean enabled = g_variant_get_boolean(params);
+        g_disabled = !enabled;
+        fprintf(stderr, "[adblock] set enabled=%d -> g_disabled=%d\n", enabled, g_disabled);
+    }
 
     return TRUE;
 }
@@ -385,6 +404,10 @@ on_page_created(WebKitWebProcessExtension *ext,
 {
     (void)ext;
     (void)data;
+
+    guint64 pid = webkit_web_page_get_id(page);
+    fprintf(stderr, "[adblock] page-created: id=%lu uri=%s\n",
+            (unsigned long)pid, webkit_web_page_get_uri(page) ?: "(null)");
 
     g_signal_connect(page, "send-request",
                      G_CALLBACK(on_send_request), NULL);
@@ -424,14 +447,17 @@ webkit_web_process_extension_initialize_with_user_data(
 
     // Deserialize pre-compiled engine from embedded data
     unsigned long dat_len = (unsigned long)(_binary_engine_dat_end - _binary_engine_dat_start);
+    fprintf(stderr, "[adblock] engine data: %lu bytes\n", dat_len);
     g_engine = adblock_engine_deserialize(_binary_engine_dat_start, dat_len);
     if (!g_engine) {
-        fprintf(stderr, "[axium-adblock] failed to deserialize embedded engine data\n");
+        fprintf(stderr, "[adblock] FAILED to deserialize embedded engine data\n");
         return;
     }
+    fprintf(stderr, "[adblock] engine deserialized OK\n");
 
     // Load redirect resources + scriptlets from embedded JSON
     unsigned long res_len = (unsigned long)(_binary_resources_json_end - _binary_resources_json_start);
+    fprintf(stderr, "[adblock] resources JSON: %lu bytes\n", res_len);
     if (res_len > 0)
         adblock_engine_load_resources_json(g_engine, _binary_resources_json_start, res_len);
 
@@ -439,10 +465,12 @@ webkit_web_process_extension_initialize_with_user_data(
     g_adblock_world = webkit_script_world_new_with_name("adblock");
     g_signal_connect(g_adblock_world, "window-object-cleared",
                      G_CALLBACK(on_world_window_cleared), NULL);
+    fprintf(stderr, "[adblock] script world 'adblock' created\n");
 
     // Connect to page-created signal
     g_signal_connect(extension, "page-created",
                      G_CALLBACK(on_page_created), NULL);
+    fprintf(stderr, "[adblock] init complete\n");
 
     // Clean up engine when extension is destroyed
     g_object_weak_ref(G_OBJECT(extension), on_extension_destroyed, NULL);
