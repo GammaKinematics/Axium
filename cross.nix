@@ -310,7 +310,6 @@ static inline long epoxy_static_stub_(void) { return 0; }'
       in prev.icu.overrideAttrs (old: {
         nativeBuildInputs = (old.nativeBuildInputs or []) ++ [ prev.buildPackages.python3 ];
         preConfigure = (old.preConfigure or "") + ''
-          rm -f data/in/*.dat
           export ICU_DATA_FILTER_FILE=${filterFile}
         '';
         configureFlags = builtins.map (f:
