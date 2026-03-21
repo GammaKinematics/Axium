@@ -346,9 +346,37 @@ static inline long epoxy_static_stub_(void) { return 0; }'
             --replace-fail "'pulsecore/sndfile-util.h'," ""
         '';
         mesonFlags = (old.mesonFlags or []) ++ [
-          "-Ddbus=disabled"
           "-Ddatabase=simple"
           "-Dtests=false"
+          "-Ddaemon=false"
+          # Disable all auto-detected features except glib
+          "-Dalsa=disabled"
+          "-Dasyncns=disabled"
+          "-Davahi=disabled"
+          "-Dbluez5=disabled"
+          "-Dbluez5-gstreamer=disabled"
+          "-Dconsolekit=disabled"
+          "-Ddbus=disabled"
+          "-Delogind=disabled"
+          "-Dfftw=disabled"
+          "-Dglib=enabled"
+          "-Dgsettings=disabled"
+          "-Dgstreamer=disabled"
+          "-Dgtk=disabled"
+          "-Djack=disabled"
+          "-Dlirc=disabled"
+          "-Dopenssl=disabled"
+          "-Dorc=disabled"
+          "-Doss-output=disabled"
+          "-Dsoxr=disabled"
+          "-Dspeex=disabled"
+          "-Dsystemd=disabled"
+          "-Dtcpwrap=disabled"
+          "-Dudev=disabled"
+          "-Dvalgrind=disabled"
+          "-Dwebrtc-aec=disabled"
+          "-Dx11=disabled"
+          "-Ddoxygen=disabled"
         ];
         meta = old.meta // { badPlatforms = []; };
       });
