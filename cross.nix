@@ -388,6 +388,13 @@ static inline long epoxy_static_stub_(void) { return 0; }'
           "-Dx11=disabled"
           "-Ddoxygen=false"
         ];
+        postInstall = ''
+          find $out/share -maxdepth 1 -mindepth 1 ! -name "vala" -prune -exec rm -r {} \; || true
+          find $out/share/vala -maxdepth 1 -mindepth 1 ! -name "vapi" -prune -exec rm -r {} \; || true
+          rm -rf $out/{.bin-unwrapped,etc,lib/pulse-*}
+          moveToOutput lib/cmake "$dev"
+          cp config.h $dev/include/pulse
+        '';
         meta = old.meta // { badPlatforms = []; };
       });
       # harfbuzz: always enable ICU so there's one build instead of two
