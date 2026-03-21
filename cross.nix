@@ -376,7 +376,7 @@ static inline long epoxy_static_stub_(void) { return 0; }'
           "-Dvalgrind=disabled"
           "-Dwebrtc-aec=disabled"
           "-Dx11=disabled"
-          "-Ddoxygen=disabled"
+          "-Ddoxygen=false"
         ];
         meta = old.meta // { badPlatforms = []; };
       });
