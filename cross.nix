@@ -307,6 +307,10 @@ static inline long epoxy_static_stub_(void) { return 0; }'
           '';
         });
       in prev.icu.overrideAttrs (old: {
+        nativeBuildInputs = (old.nativeBuildInputs or []) ++ [ prev.buildPackages.python3 ];
+        preConfigure = (old.preConfigure or "") + ''
+          export ICU_DATA_FILTER_FILE=${filterFile}
+        '';
         configureFlags = builtins.map (f:
           if builtins.match ".*--with-cross-build=.*" f != null
           then "--with-cross-build=${filteredBuildRoot}"
@@ -343,7 +347,7 @@ static inline long epoxy_static_stub_(void) { return 0; }'
         '';
         mesonFlags = (old.mesonFlags or []) ++ [
           "-Ddatabase=simple"
-          "-Dtests=disabled"
+          "-Dtests=false"
         ];
         meta = old.meta // { badPlatforms = []; };
       });
