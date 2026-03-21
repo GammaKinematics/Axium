@@ -346,6 +346,7 @@ static inline long epoxy_static_stub_(void) { return 0; }'
             --replace-fail "'pulsecore/sndfile-util.h'," ""
         '';
         mesonFlags = (old.mesonFlags or []) ++ [
+          "-Ddbus=disabled"
           "-Ddatabase=simple"
           "-Dtests=false"
         ];
