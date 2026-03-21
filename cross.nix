@@ -343,7 +343,11 @@ static inline long epoxy_static_stub_(void) { return 0; }'
               "sndfile_dep = dependency('sndfile-removed', required : false)"
           substituteInPlace src/meson.build \
             --replace-fail "'pulsecore/sndfile-util.c'," "" \
-            --replace-fail "'pulsecore/sndfile-util.h'," ""
+            --replace-fail "'pulsecore/sndfile-util.h'," "" \
+            --replace-fail "shared_library('pulsecommon-'" \
+              "static_library('pulsecommon-'"
+          substituteInPlace src/pulse/meson.build \
+            --replace-fail "shared_library(" "static_library("
         '';
         mesonFlags = (old.mesonFlags or []) ++ [
           "-Ddatabase=simple"
