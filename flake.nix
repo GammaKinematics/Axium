@@ -62,7 +62,7 @@
       # ─── Configuration ───
 
       backends = ["x11"];   # display server backends: "x11", "wayland"
-      gpu = true;           # GPU compositing (EGL/GL)
+      gpu = false;          # GPU compositing (EGL/GL)
 
       # ─── Shared (same for all build variants) ───
 
