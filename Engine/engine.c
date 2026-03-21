@@ -2129,7 +2129,6 @@ int engine_init(void* egl_display, void** egl_image_out,
 
     // Register axium:// URI scheme
     WebKitWebContext* ctx = webkit_web_context_get_default();
-    webkit_web_context_set_web_process_extensions_directory(ctx, "/");
     webkit_web_context_register_uri_scheme(ctx, "axium", on_axium_uri_scheme, NULL, NULL);
     WebKitSecurityManager* sec = webkit_web_context_get_security_manager(ctx);
     webkit_security_manager_register_uri_scheme_as_local(sec, "axium");

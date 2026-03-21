@@ -24,6 +24,7 @@ Ext_Entry :: struct {
 
     // Native code (.so loaded from signed extension archives)
     native_lib:            dynlib.Library,
+    native_memfd:          linux.Fd,
     native_init:           proc "c" (),
     native_shutdown:       proc "c" (),
     native_handle_message: proc(payload: cstring, reply: rawptr, ctx: rawptr),
@@ -362,7 +363,15 @@ browser.storage={local:{
 get:function(keys){return browser.runtime.sendMessage({_a:"storage.get",keys:keys})},
 set:function(items){return browser.runtime.sendMessage({_a:"storage.set",items:items})},
 remove:function(keys){return browser.runtime.sendMessage({_a:"storage.remove",keys:typeof keys==="string"?[keys]:keys})}
-}};
+},sync:{
+get:function(keys){return browser.runtime.sendMessage({_a:"storage.sync.get",keys:keys})},
+set:function(items){return browser.runtime.sendMessage({_a:"storage.sync.set",items:items})},
+remove:function(keys){return browser.runtime.sendMessage({_a:"storage.sync.remove",keys:typeof keys==="string"?[keys]:keys})}
+},session:{
+get:function(keys){return browser.runtime.sendMessage({_a:"storage.session.get",keys:keys})},
+set:function(items){return browser.runtime.sendMessage({_a:"storage.session.set",items:items})},
+remove:function(keys){return browser.runtime.sendMessage({_a:"storage.session.remove",keys:typeof keys==="string"?[keys]:keys})}
+},onChanged:{addListener:function(){},removeListener:function(){}}};
 browser.tabs={sendMessage:function(tabId,msg){
 return browser.runtime.sendMessage({_a:"tabs.sendMessage",tabId:tabId,data:msg});
 }};
@@ -474,17 +483,20 @@ ext_try_load_native :: proc(ext: ^Ext_Entry, zip_data: []u8, entries: []Zip_Entr
 
     fd_path := fmt.tprintf("/proc/self/fd/%d", fd)
     lib, lok := dynlib.load_library(fd_path)
-    linux.close(fd)
-
+    // Keep memfd open — closing it would free the fd number for reuse,
+    // and glibc dlopen caches by path, so a subsequent dlopen of the same
+    // /proc/self/fd/N would return the first library's handle.
     if !lok {
         fmt.eprintln("[ext]", ext.name, "— failed to dlopen native library")
+        linux.close(fd)
         return
     }
 
     ext.native_lib = lib
-    ext.native_init = auto_cast dynlib.symbol_address(lib, "extension_init")
-    ext.native_shutdown = auto_cast dynlib.symbol_address(lib, "extension_shutdown")
-    ext.native_handle_message = auto_cast dynlib.symbol_address(lib, "native_handle_message")
+    ext.native_memfd = fd
+    ext.native_init = auto_cast dynlib.symbol_address(lib, fmt.tprintf("%s_init", ext.id))
+    ext.native_shutdown = auto_cast dynlib.symbol_address(lib, fmt.tprintf("%s_shutdown", ext.id))
+    ext.native_handle_message = auto_cast dynlib.symbol_address(lib, fmt.tprintf("%s_handle_message", ext.id))
 
     if ext.native_init != nil do ext.native_init()
     fmt.eprintln("[ext]", ext.name, "— loaded native code")
@@ -572,6 +584,7 @@ extension_shutdown :: proc() {
     for &ext in extensions {
         if ext.native_shutdown != nil do ext.native_shutdown()
         if ext.native_lib != nil do dynlib.unload_library(ext.native_lib)
+        if ext.native_memfd > 0 do linux.close(ext.native_memfd)
         delete(ext.name)
         delete(ext.id)
     }

@@ -195,7 +195,7 @@
 
       devShells.${system}.default = pkgs.mkShell {
         packages = with pkgs; [
-          odin gdb strace ltrace valgrind
+          odin gdb strace ltrace valgrind unzip
           binutils elfutils patchelf        # readelf, nm, strings, objdump, ar
           llvmPackages.bintools-unwrapped   # llvm-nm, llvm-objdump, llvm-readelf, llvm-ar
           llvmPackages.libllvm              # llvm-dis, llvm-bcanalyzer, opt, llvm-lto

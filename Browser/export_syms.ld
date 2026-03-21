@@ -8,6 +8,8 @@
   register_poll_fd;
   unregister_poll_fd;
   register_command;
+  execute_command;
   active_tab;
+  content_has_focus;
   webkit_web_process_extension_initialize_with_user_data;
 };
