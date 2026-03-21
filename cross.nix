@@ -302,7 +302,7 @@ static inline long epoxy_static_stub_(void) { return 0; }'
         });
         filteredBuildRoot = prev.buildPackages.icu.buildRootOnly.overrideAttrs (old: {
           nativeBuildInputs = (old.nativeBuildInputs or []) ++ [ prev.buildPackages.python3 ];
-          postPatch = (old.postPatch or "") + ''
+          postPatch = ''
             rm -f data/in/*.dat
           '';
           preConfigure = (old.preConfigure or "") + ''
@@ -311,7 +311,7 @@ static inline long epoxy_static_stub_(void) { return 0; }'
         });
       in prev.icu.overrideAttrs (old: {
         nativeBuildInputs = (old.nativeBuildInputs or []) ++ [ prev.buildPackages.python3 ];
-        postPatch = (old.postPatch or "") + ''
+        postPatch = ''
           rm -f data/in/*.dat
         '';
         preConfigure = (old.preConfigure or "") + ''
