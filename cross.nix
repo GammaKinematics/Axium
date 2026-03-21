@@ -347,7 +347,12 @@ static inline long epoxy_static_stub_(void) { return 0; }'
             --replace-fail "shared_library('pulsecommon-'" \
               "static_library('pulsecommon-'"
           substituteInPlace src/pulse/meson.build \
-            --replace-fail "shared_library(" "static_library("
+            --replace-fail "shared_library(" "static_library(" \
+            --replace-fail "  version : libpulse_version," "" \
+            --replace-fail "  version : libpulse_simple_version," "" \
+            --replace-fail "  version : libpulse_mainloop_glib_version," "" \
+            --replace-fail "  vs_module_defs : 'libpulse.def'," "" \
+            --replace-fail "  install_rpath : privlibdir," ""
         '';
         mesonFlags = (old.mesonFlags or []) ++ [
           "-Ddatabase=simple"
