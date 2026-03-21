@@ -161,25 +161,15 @@ namespace WebKit {' \
 
       # Severs Skia Ganesh backend, SkiaGPUAtlas, GrDirectContext.
       substituteInPlace Source/WebCore/platform/graphics/skia/PlatformDisplaySkia.cpp \
-        --replace-fail \
-          'if (!s_skiaGLContext) {
-        s_skiaGLContext = SkiaGLContext::create(*this);
-        m_skiaGLContexts.add(*s_skiaGLContext);
-    }
-    return s_skiaGLContext->skiaGLContext();' \
-          'return nullptr;' \
-        --replace-fail \
-          'RELEASE_ASSERT(s_skiaGLContext);
-    return s_skiaGLContext->skiaGrContext();' \
-          'return nullptr;'
+        --replace-fail 'if (!s_skiaGLContext) {' 'if (false) {' \
+        --replace-fail 'return s_skiaGLContext->skiaGLContext();' 'return nullptr;' \
+        --replace-fail 'RELEASE_ASSERT(s_skiaGLContext);' '(void)0;' \
+        --replace-fail 'return s_skiaGLContext->skiaGrContext();' 'return nullptr;'
 
       # Severs TextureMapper GL and BitmapTexturePool GPU paths.
       substituteInPlace Source/WebCore/platform/graphics/PlatformDisplay.cpp \
-        --replace-fail \
-          'if (!m_sharingGLContext)
-        m_sharingGLContext = GLContext::createSharing(*this);
-    return m_sharingGLContext.get();' \
-          'return nullptr;'
+        --replace-fail 'if (!m_sharingGLContext)' 'if (false)' \
+        --replace-fail 'return m_sharingGLContext.get();' 'return nullptr;'
 
       # Force SharedMemoryWithoutGL — kills GPU RenderTargets, skips GL context.
       substituteInPlace Source/WebKit/WebProcess/WebPage/CoordinatedGraphics/AcceleratedSurface.cpp \
