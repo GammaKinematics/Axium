@@ -292,31 +292,37 @@ static inline long epoxy_static_stub_(void) { return 0; }'
         meta = old.meta // { badPlatforms = []; };
       });
       # ICU: trim locale data to English only (~28 MB savings).
-      # Full ICU code is kept — only locale data tables are stripped.
-      # Non-English Intl.* JS APIs fall back to English formatting.
-      # Data is baked during the native buildRootOnly step, so the filter
-      # must be applied there — the cross build just reuses that data.
+      # ICU data trimming: strip non-English locales, unused charset converters,
+      # RBNF, transliteration, and StringPrep profiles from the pre-built .dat file.
+      # Uses icupkg to surgically remove entries while keeping the proven build path.
+      # Verified unused in WebKit: .cnv (own charset handling), translit/ (no utrans_),
+      # rbnf/ (no RBNF calls), .spp (no usprep_ calls), unames.icu, ulayout.icu.
+      # Keeps: en* locales, root/pool/res_index, normalization, collation, break
+      # iterators, confusables, emoji data, uts46 (IDNA). ~6 MB vs 31 MB.
       icu = let
-        filterFile = builtins.toFile "icu-filter.json" (builtins.toJSON {
-          localeFilter = { filterType = "language"; includelist = [ "en" ]; };
-        });
+        icupkg = "${prev.buildPackages.icu.dev}/bin/icupkg";
+        trimIcuData = ''
+          datfile=$(echo data/in/icudt*.dat)
+          if [ -f "$datfile" ]; then
+            ${icupkg} -l "$datfile" > "$TMPDIR/icu-all.txt"
+            {
+              grep '\.res$' "$TMPDIR/icu-all.txt" | grep -v '^en' | grep -v '/en' \
+                | grep -v -E '^(root|pool|res_index|supplementalData)\.' \
+                | grep -v -E '/(root|pool|res_index)\.'
+              grep '\.cnv$' "$TMPDIR/icu-all.txt"
+              grep '\.spp$' "$TMPDIR/icu-all.txt"
+              grep -E '^(cnvalias\.icu|unames\.icu|ulayout\.icu)$' "$TMPDIR/icu-all.txt"
+              grep '^translit/' "$TMPDIR/icu-all.txt"
+              grep '^rbnf/' "$TMPDIR/icu-all.txt"
+            } > "$TMPDIR/icu-remove.txt" || true
+            ${icupkg} -r "$TMPDIR/icu-remove.txt" "$datfile"
+          fi
+        '';
         filteredBuildRoot = prev.buildPackages.icu.buildRootOnly.overrideAttrs (old: {
-          nativeBuildInputs = (old.nativeBuildInputs or []) ++ [ prev.buildPackages.python3 ];
-          postPatch = ''
-            rm -f data/in/*.dat
-          '';
-          preConfigure = (old.preConfigure or "") + ''
-            export ICU_DATA_FILTER_FILE=${filterFile}
-          '';
+          postPatch = trimIcuData;
         });
       in prev.icu.overrideAttrs (old: {
-        nativeBuildInputs = (old.nativeBuildInputs or []) ++ [ prev.buildPackages.python3 ];
-        postPatch = ''
-          rm -f data/in/*.dat
-        '';
-        preConfigure = (old.preConfigure or "") + ''
-          export ICU_DATA_FILTER_FILE=${filterFile}
-        '';
+        postPatch = trimIcuData;
         configureFlags = builtins.map (f:
           if builtins.match ".*--with-cross-build=.*" f != null
           then "--with-cross-build=${filteredBuildRoot}"
