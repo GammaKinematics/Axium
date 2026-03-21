@@ -440,6 +440,7 @@ GSTEOF
       pkgs.libsoup_3
       pkgs.libxkbcommon
       pkgs.sqlite
+      pkgs.nghttp2
     ] ++ pkgs.lib.optionals gpu [
       pkgs.libdrm
     ];

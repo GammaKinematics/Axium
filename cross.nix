@@ -268,7 +268,9 @@ static inline long epoxy_static_stub_(void) { return 0; }'
         # All 3 upstream patches are for gnome-proxy or tests — both disabled.
         # hardcode-gsettings.patch pulls gsettings-desktop-schemas just for path subst.
         patches = [];
-        mesonFlags = (old.mesonFlags or []) ++ [
+        mesonFlags = builtins.filter (f:
+          !(builtins.match ".*installed_test_prefix.*" f != null)
+        ) (old.mesonFlags or []) ++ [
           "-Ddefault_library=static"
           "-Dinstalled_tests=false"
           "-Dlibproxy=disabled"
@@ -288,6 +290,19 @@ static inline long epoxy_static_stub_(void) { return 0; }'
           mkdir -p $out/libexec $installedTests/libexec
         '';
         meta = old.meta // { badPlatforms = []; };
+      });
+      # ICU: trim locale data to English only (~28 MB savings).
+      # Full ICU code is kept — only locale data tables are stripped.
+      # Non-English Intl.* JS APIs fall back to English formatting.
+      icu = prev.icu.overrideAttrs (old: {
+        preConfigure = (old.preConfigure or "") + ''
+          export ICU_DATA_FILTER_FILE=${builtins.toFile "icu-filter.json" (builtins.toJSON {
+            localeFilter = {
+              filterType = "language";
+              includelist = [ "en" ];
+            };
+          })}
+        '';
       });
       # harfbuzz: always enable ICU so there's one build instead of two
       # (nixpkgs harfbuzz-icu builds harfbuzz twice). Nuke postFixup which

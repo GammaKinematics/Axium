@@ -100,8 +100,10 @@ main :: proc() {
         display_fallback_cpu()
     }
 
-    if gpu_active {
-        lv_opengles_init()
+    when GPU {
+        if gpu_active {
+            lv_opengles_init()
+        }
     }
 
 
@@ -124,10 +126,13 @@ main :: proc() {
     lv_init()
     apply_theme()
 
-    if gpu_active {
-        lv_disp = lv_opengles_texture_create(i32(WIDTH), i32(HEIGHT))
-        lv_display_set_color_format(lv_disp, .LV_COLOR_FORMAT_ARGB8888)
-    } else {
+    when GPU {
+        if gpu_active {
+            lv_disp = lv_opengles_texture_create(i32(WIDTH), i32(HEIGHT))
+            lv_display_set_color_format(lv_disp, .LV_COLOR_FORMAT_ARGB8888)
+        }
+    }
+    if !gpu_active {
         lv_disp = lv_display_create(i32(WIDTH), i32(HEIGHT))
         lv_display_set_color_format(lv_disp, .LV_COLOR_FORMAT_ARGB8888_PREMULTIPLIED)
         fb, fb_w, _ := display_get_framebuffer()
@@ -257,18 +262,20 @@ main :: proc() {
         popup_invalidate()
         lv_refr_now(lv_disp)     // GPU: GL draw to texture; CPU: SW draw to SHM
 
-        if gpu_active {
-            w, h := display_size()
-            lvgl_tex := Texture(lv_opengles_texture_get_texture_id(lv_disp))
-            gpu_present({
-                {image = egl_image,
-                 x = int(content_area.x), y = int(content_area.y),
-                 w = int(content_area.w), h = int(content_area.h),
-                 blend = .None},
-                {texture = lvgl_tex,
-                 x = 0, y = 0, w = w, h = h,
-                 blend = .Premultiplied, flip_v = true, bgra = true},
-            }, w, h)
+        when GPU {
+            if gpu_active {
+                w, h := display_size()
+                lvgl_tex := Texture(lv_opengles_texture_get_texture_id(lv_disp))
+                gpu_present({
+                    {image = egl_image,
+                     x = int(content_area.x), y = int(content_area.y),
+                     w = int(content_area.w), h = int(content_area.h),
+                     blend = .None},
+                    {texture = lvgl_tex,
+                     x = 0, y = 0, w = w, h = h,
+                     blend = .Premultiplied, flip_v = true, bgra = true},
+                }, w, h)
+            }
         }
 
         // Update cursor if WebKit changed it

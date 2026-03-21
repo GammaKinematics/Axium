@@ -188,10 +188,13 @@ handle_resize :: proc(lv_disp: ^lv_display_t) {
     w, h := display_size()
 
     lv_display_set_resolution(lv_disp, i32(w), i32(h))
-    if gpu_active {
-        tex := lv_display_get_driver_data(lv_disp)
-        lv_opengles_texture_reshape(tex, lv_disp, i32(w), i32(h))
-    } else {
+    when GPU {
+        if gpu_active {
+            tex := lv_display_get_driver_data(lv_disp)
+            lv_opengles_texture_reshape(tex, lv_disp, i32(w), i32(h))
+        }
+    }
+    if !gpu_active {
         fb, fb_w, _ := display_get_framebuffer()
         if fb == nil do return
         lv_display_set_buffers(lv_disp, raw_data(fb), nil, u32(len(fb) * 4), .LV_DISPLAY_RENDER_MODE_DIRECT)
