@@ -294,16 +294,24 @@ static inline long epoxy_static_stub_(void) { return 0; }'
       # ICU: trim locale data to English only (~28 MB savings).
       # Full ICU code is kept — only locale data tables are stripped.
       # Non-English Intl.* JS APIs fall back to English formatting.
-      icu = prev.icu.overrideAttrs (old: {
-        nativeBuildInputs = (old.nativeBuildInputs or []) ++ [ prev.buildPackages.python3 ];
-        preConfigure = (old.preConfigure or "") + ''
-          export ICU_DATA_FILTER_FILE=${builtins.toFile "icu-filter.json" (builtins.toJSON {
-            localeFilter = {
-              filterType = "language";
-              includelist = [ "en" ];
-            };
-          })}
-        '';
+      # Data is baked during the native buildRootOnly step, so the filter
+      # must be applied there — the cross build just reuses that data.
+      icu = let
+        filterFile = builtins.toFile "icu-filter.json" (builtins.toJSON {
+          localeFilter = { filterType = "language"; includelist = [ "en" ]; };
+        });
+        filteredBuildRoot = prev.buildPackages.icu.buildRootOnly.overrideAttrs (old: {
+          nativeBuildInputs = (old.nativeBuildInputs or []) ++ [ prev.buildPackages.python3 ];
+          preConfigure = (old.preConfigure or "") + ''
+            export ICU_DATA_FILTER_FILE=${filterFile}
+          '';
+        });
+      in prev.icu.overrideAttrs (old: {
+        configureFlags = builtins.map (f:
+          if builtins.match ".*--with-cross-build=.*" f != null
+          then "--with-cross-build=${filteredBuildRoot}"
+          else f
+        ) (old.configureFlags or []);
       });
       # PulseAudio: client library only for GStreamer pulsesink.
       # libpulse talks to PipeWire/PulseAudio over a unix socket — no dlopen.
@@ -322,18 +330,16 @@ static inline long epoxy_static_stub_(void) { return 0; }'
         ossWrapper = false;
         airtunesSupport = false;
       }).overrideAttrs (old: {
-        # Remove libsndfile, soxr, speexdsp, fftw — server-side deps not needed by client.
-        buildInputs = builtins.filter (x:
-          !(builtins.elem (x.pname or "") [ "libsndfile" "soxr" "speexdsp" "fftw" "fftwFloat" "check" ])
-        ) (old.buildInputs or []);
-        # Patch out sndfile-util.c — it's the only source file that uses libsndfile,
-        # and no client code calls it (only pacat/paplay/server use it).
+        # Client-only: just glib for GLib main loop. Everything else is server-side.
+        buildInputs = [ prev.glib ];
+        propagatedBuildInputs = [];
         postPatch = (old.postPatch or "") + ''
+          substituteInPlace meson.build \
+            --replace-fail "sndfile_dep = dependency('sndfile', version : '>= 1.0.20')" \
+              "sndfile_dep = dependency('sndfile-removed', required : false)"
           substituteInPlace src/meson.build \
             --replace-fail "'pulsecore/sndfile-util.c'," "" \
             --replace-fail "'pulsecore/sndfile-util.h'," ""
-          # Stub out the header so includes don't break
-          echo '/* sndfile-util removed for static client-only build */' > src/pulsecore/sndfile-util.h
         '';
         mesonFlags = (old.mesonFlags or []) ++ [
           "-Ddatabase=simple"
