@@ -345,7 +345,8 @@ static inline long epoxy_static_stub_(void) { return 0; }'
             --replace-fail "'pulsecore/sndfile-util.c'," "" \
             --replace-fail "'pulsecore/sndfile-util.h'," "" \
             --replace-fail "shared_library('pulsecommon-'" \
-              "static_library('pulsecommon-'"
+              "static_library('pulsecommon-'" \
+            --replace-fail "subdir('utils')" "# subdir('utils')"
           substituteInPlace src/pulse/meson.build \
             --replace-fail "shared_library(" "static_library(" \
             --replace-fail "  version : libpulse_version," "" \
