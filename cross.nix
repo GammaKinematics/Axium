@@ -295,6 +295,7 @@ static inline long epoxy_static_stub_(void) { return 0; }'
       # Full ICU code is kept — only locale data tables are stripped.
       # Non-English Intl.* JS APIs fall back to English formatting.
       icu = prev.icu.overrideAttrs (old: {
+        nativeBuildInputs = (old.nativeBuildInputs or []) ++ [ prev.buildPackages.python3 ];
         preConfigure = (old.preConfigure or "") + ''
           export ICU_DATA_FILTER_FILE=${builtins.toFile "icu-filter.json" (builtins.toJSON {
             localeFilter = {
@@ -303,6 +304,42 @@ static inline long epoxy_static_stub_(void) { return 0; }'
             };
           })}
         '';
+      });
+      # PulseAudio: client library only for GStreamer pulsesink.
+      # libpulse talks to PipeWire/PulseAudio over a unix socket — no dlopen.
+      # Disable X11, D-Bus, systemd (server discovery features we don't need).
+      # Patch out sndfile-util.c (never called by client API, kills libsndfile dep).
+      pulseaudio = (prev.pulseaudio.override {
+        libOnly = true;
+        x11Support = false;
+        bluetoothSupport = false;
+        remoteControlSupport = false;
+        zeroconfSupport = false;
+        alsaSupport = false;
+        udevSupport = false;
+        useSystemd = false;
+        jackaudioSupport = false;
+        ossWrapper = false;
+        airtunesSupport = false;
+      }).overrideAttrs (old: {
+        # Remove libsndfile, soxr, speexdsp, fftw — server-side deps not needed by client.
+        buildInputs = builtins.filter (x:
+          !(builtins.elem (x.pname or "") [ "libsndfile" "soxr" "speexdsp" "fftw" "fftwFloat" "check" ])
+        ) (old.buildInputs or []);
+        # Patch out sndfile-util.c — it's the only source file that uses libsndfile,
+        # and no client code calls it (only pacat/paplay/server use it).
+        postPatch = (old.postPatch or "") + ''
+          substituteInPlace src/meson.build \
+            --replace-fail "'pulsecore/sndfile-util.c'," "" \
+            --replace-fail "'pulsecore/sndfile-util.h'," ""
+          # Stub out the header so includes don't break
+          echo '/* sndfile-util removed for static client-only build */' > src/pulsecore/sndfile-util.h
+        '';
+        mesonFlags = (old.mesonFlags or []) ++ [
+          "-Ddatabase=simple"
+          "-Dtests=disabled"
+        ];
+        meta = old.meta // { badPlatforms = []; };
       });
       # harfbuzz: always enable ICU so there's one build instead of two
       # (nixpkgs harfbuzz-icu builds harfbuzz twice). Nuke postFixup which

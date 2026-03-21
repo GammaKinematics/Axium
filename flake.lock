@@ -170,8 +170,6 @@
         "lvgl-onix": "lvgl-onix",
         "nixpkgs": "nixpkgs",
         "theme-onix": "theme-onix",
-        "translation-models": "translation-models",
-        "translations": "translations",
         "uassets": "uassets",
         "ublock": "ublock",
         "webkit": "webkit"
@@ -187,36 +185,6 @@
       "original": {
         "path": "/data/Browser/Theme-Onix",
         "type": "path"
-      }
-    },
-    "translation-models": {
-      "flake": false,
-      "locked": {
-        "narHash": "sha256-6dVa+G2pJ6Ujm4LfDTfD3co5iG8Xnpm6Ff1iWp5wQAQ=",
-        "type": "file",
-        "url": "https://firefox.settings.services.mozilla.com/v1/buckets/main/collections/translations-models/records"
-      },
-      "original": {
-        "type": "file",
-        "url": "https://firefox.settings.services.mozilla.com/v1/buckets/main/collections/translations-models/records"
-      }
-    },
-    "translations": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1771525531,
-        "narHash": "sha256-dEVeRZyeFKXerUFqXbyAgHwn1mhlyDiyRbH7vvVn46k=",
-        "ref": "refs/heads/main",
-        "rev": "29389c687d1668e898b4b7dc3ca5a793aac75660",
-        "revCount": 508,
-        "submodules": true,
-        "type": "git",
-        "url": "file:///data/Browser/translations"
-      },
-      "original": {
-        "submodules": true,
-        "type": "git",
-        "url": "file:///data/Browser/translations"
       }
     },
     "uassets": {

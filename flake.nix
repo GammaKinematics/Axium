@@ -41,18 +41,9 @@
       flake = false;
     };
 
-    translations = {
-      url = "git+file:///data/Browser/translations?submodules=1";
-      flake = false;
-    };
+};
 
-    translation-models = {
-      url = "file+https://firefox.settings.services.mozilla.com/v1/buckets/main/collections/translations-models/records";
-      flake = false;
-    };
-  };
-
-  outputs = { self, nixpkgs, webkit, display-onix, bindings-onix, lvgl-onix, theme-onix, font-onix, edge-onix, adblock-rust, uassets, ublock, translations, translation-models, gstreamer-src }:
+  outputs = { self, nixpkgs, webkit, display-onix, bindings-onix, lvgl-onix, theme-onix, font-onix, edge-onix, adblock-rust, uassets, ublock, gstreamer-src }:
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };

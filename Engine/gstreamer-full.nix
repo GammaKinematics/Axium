@@ -41,7 +41,7 @@ let
     fdk_aac
     flac
     mpg123
-    alsa-lib
+    pulseaudio
     zlib
   ];
 
@@ -104,7 +104,7 @@ let
     "-Dgst-plugins-base:x11=disabled"
     "-Dgst-plugins-base:xshm=disabled"
     "-Dgst-plugins-base:xvideo=disabled"
-    "-Dgst-plugins-base:alsa=enabled"
+    "-Dgst-plugins-base:alsa=disabled"
     "-Dgst-plugins-base:cdparanoia=disabled"
     "-Dgst-plugins-base:pango=disabled"
     "-Dgst-plugins-base:theora=disabled"
@@ -119,7 +119,7 @@ let
     "-Dgst-plugins-good:audiofx=enabled"     # includes scaletempo
     "-Dgst-plugins-good:wavparse=enabled"
     # Disable the heavy hitters
-    "-Dgst-plugins-good:pulse=disabled"
+    "-Dgst-plugins-good:pulse=enabled"
     "-Dgst-plugins-good:jack=disabled"
     "-Dgst-plugins-good:aalib=disabled"
     "-Dgst-plugins-good:libcaca=disabled"
@@ -185,12 +185,12 @@ in {
     "-L${pkgs.fdk_aac}/lib -lfdk-aac"
     "-L${pkgs.flac}/lib -lFLAC"
     "-L${pkgs.mpg123}/lib -lmpg123"
-    "-L${pkgs.alsa-lib}/lib -lasound"
+    "-L${pkgs.pulseaudio}/lib -lpulse -lpulsecommon-17.0"
   ];
 
   # Whole-archive flags for the gstreamer monolithic lib.
   wholeArchiveFlags = "-Wl,--whole-archive $(echo ${drv}/lib/libgst*.a) $(echo ${drv}/lib/gstreamer-1.0/lib*.a) -Wl,--no-whole-archive";
 
   # buildInputs needed by the final binary for codec link paths.
-  buildInputs = with pkgs; [ libogg libvorbis libopus libvpx openh264 fdk_aac flac mpg123 alsa-lib ];
+  buildInputs = with pkgs; [ libogg libvorbis libopus libvpx openh264 fdk_aac flac mpg123 pulseaudio ];
 }

@@ -18,7 +18,7 @@ base_font: ^lv_font_t
 pending_resize: Maybe(Resize)
 last_resize_time: time.Tick
 
-// Generic poll fd registration (used by display, keepass, translate, extensions)
+// Generic poll fd registration (used by display, extensions)
 poll_callbacks: [dynamic]proc()
 poll_pfds: [dynamic]posix.pollfd
 
