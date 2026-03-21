@@ -84,7 +84,6 @@ pkgs.stdenv.mkDerivation {
       \
       --sysroot=${musl} --rtlib=compiler-rt --unwindlib=libunwind \
       -Wl,--strip-all -Wl,--gc-sections -Wl,--allow-multiple-definition -Wl,-z,noexecstack \
-      -Wl,--export-dynamic-symbol-list=export_syms.ld \
       -o axium axium.bc \
       ${engine.shim}/lib/libengine.a \
       -Wl,--whole-archive ${pages}/lib/libpages.a -Wl,--no-whole-archive \
@@ -111,7 +110,6 @@ pkgs.stdenv.mkDerivation {
         ${lvgl.linkFlags} \
         $(pkg-config --libs wpe-webkit-2.0 wpe-platform-2.0 glib-2.0 gobject-2.0) \
         -Wl,--whole-archive -lpages -Wl,--no-whole-archive \
-        -Wl,--export-dynamic-symbol-list=export_syms.ld \
         ${adblock.linkFlags} \
         -lsqlite3 -lm -lstdc++ ${pkgs.lib.optionalString gpu "-ldrm"}"
   '');

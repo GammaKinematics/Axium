@@ -63,6 +63,10 @@ execute_command :: proc(cmd: string, pressed: bool = true) {
             if pressed do cb()
             return
         }
+        if cmd in ext_command_owners {
+            if pressed do ext_dispatch_command(cmd)
+            return
+        }
 
         idx := strings.index_byte(cmd, ' ')
         name := cmd[:idx] if idx >= 0 else cmd
@@ -73,6 +77,14 @@ execute_command :: proc(cmd: string, pressed: bool = true) {
                 tab_idx, ok := strconv.parse_int(args)
                 if ok {
                     tab_switch(tab_idx)
+                }
+            }
+        } else if name == "navigate" {
+            if pressed && args != "" {
+                if active_tab >= 0 && active_tab < tab_count {
+                    cs := strings.clone_to_cstring(args)
+                    defer delete(cs)
+                    engine_view_go_to(tab_entries[active_tab].view, cs)
                 }
             }
         } else if name == "edge" {

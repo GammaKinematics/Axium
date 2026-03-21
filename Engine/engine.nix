@@ -57,26 +57,12 @@ let
 
     src = webkit;
 
-    postPatch = pkgs.lib.optionalString (!gpu) ''
-      # Axium (CPU-only): disable compositing — force NonCompositedFrameRenderer (Skia CPU).
-      substituteInPlace Source/WebKit/UIProcess/wpe/WebPreferencesWPE.cpp \
-        --replace-fail 'setAcceleratedCompositingEnabled(true)' 'setHardwareAccelerationEnabled(false); setAcceleratedCompositingEnabled(false)' \
-        --replace-fail 'setForceCompositingMode(true)' 'setForceCompositingMode(false)'
-
-      # Axium (CPU-only): skip EGL/PlatformDisplay init — avoids loading Mesa (~75 MB per process).
-      substituteInPlace Source/WebKit/WebProcess/glib/WebProcessGLib.cpp \
-        --replace-fail 'if (PlatformDisplay::sharedDisplayIfExists())' 'if (true) // Axium: skip EGL init entirely'
-
-      # Axium (CPU-only): neutralize DRM_FORMAT_XRGB8888 — won't compile without libdrm.
-      substituteInPlace Source/WebKit/UIProcess/wpe/AcceleratedBackingStore.cpp \
-        --replace-fail 'if (wpe_buffer_dma_buf_get_format(dmaBuffer) == DRM_FORMAT_XRGB8888)' 'if (false) // Axium: no LIBDRM, DMA-BUF path unused'
-
-      # Axium (CPU-only): neutralize memoryMappedGPUBuffer() — requires USE(GBM).
-      substituteInPlace Source/WebCore/platform/graphics/skia/SkiaPaintingEngine.cpp \
-        --replace-fail 'if (!texture->memoryMappedGPUBuffer())' 'if (false) // Axium: memoryMappedGPUBuffer requires USE(GBM)'
-
-    '' + ''
+    postPatch = ''
+      # ── Extension system ──
+      # Replace dlopen bundle loading with direct WebProcessExtensionManager call.
+      # adblock.o is linked into the binary — symbol available at link time.
       substituteInPlace Source/WebKit/WebProcess/InjectedBundle/glib/InjectedBundleGlib.cpp \
+        --replace-fail '#include "WKBundleInitialize.h"' '#include "WebProcessExtensionManager.h"' \
         --replace-fail \
           '    m_platformBundle = g_module_open(FileSystem::fileSystemRepresentation(m_path).data(), G_MODULE_BIND_LOCAL);
     if (!m_platformBundle) {
@@ -92,23 +78,17 @@ let
 
     initializeFunction(toAPI(this), toAPI(initializationUserData.get()));' \
           '    WebProcessExtensionManager::singleton().initialize(this, initializationUserData.get());'
-      # Add required include for WebProcessExtensionManager
-      substituteInPlace Source/WebKit/WebProcess/InjectedBundle/glib/InjectedBundleGlib.cpp \
-        --replace-fail '#include "WKBundleInitialize.h"' '#include "WebProcessExtensionManager.h"'
 
-      # Axium: bypass extension dlopen — call adblock init directly.
-      # adblock.o is linked into the binary, so the symbol is available at link time.
+      # Weak extern decl at file scope — provides default no-op when no extension is linked.
       # Keeps the WebKitWebProcessExtension object (needed for user message routing)
       # but skips directory scanning and g_module_open entirely.
-      # Weak extern decl at file scope (can't go inside a function body in C++).
       substituteInPlace Source/WebKit/WebProcess/InjectedBundle/API/glib/WebProcessExtensionManager.cpp \
         --replace-fail \
           'namespace WebKit {' \
           'extern "C" __attribute__((weak, visibility("default"))) void webkit_web_process_extension_initialize_with_user_data(
     WebKitWebProcessExtension*, GVariant*) {}
 
-namespace WebKit {'
-      substituteInPlace Source/WebKit/WebProcess/InjectedBundle/API/glib/WebProcessExtensionManager.cpp \
+namespace WebKit {' \
         --replace-fail \
           '    if (webProcessExtensionsDirectory.isNull())
         return;
@@ -125,72 +105,15 @@ namespace WebKit {'
     }' \
           '    webkit_web_process_extension_initialize_with_user_data(m_extension.get(), userData.get());'
 
-    '' + ''
-      # Axium: unconditional subprocess discovery from executable's parent directory.
+      # ── Subprocess discovery ──
       # Single-binary architecture: WPEWebProcess/WPENetworkProcess are symlinks to axium.
-      # WEBKIT_EXEC_PATH is behind DEVELOPER_MODE — remove the guards so release builds
-      # check the env var and executable's parent dir before falling back to PKGLIBEXECDIR.
-      sed -i '/#if ENABLE(DEVELOPER_MODE)/d' Source/WebKit/Shared/glib/ProcessExecutablePathGLib.cpp
-      sed -i '0,/^#endif$/{/^#endif$/d}' Source/WebKit/Shared/glib/ProcessExecutablePathGLib.cpp
-      sed -i '0,/^#endif$/{/^#endif$/d}' Source/WebKit/Shared/glib/ProcessExecutablePathGLib.cpp
+      # WEBKIT_EXEC_PATH is behind DEVELOPER_MODE — enable unconditionally so release
+      # builds check the env var and executable's parent dir before falling back to PKGLIBEXECDIR.
+      substituteInPlace Source/WebKit/Shared/glib/ProcessExecutablePathGLib.cpp \
+        --replace-fail '#if ENABLE(DEVELOPER_MODE)' '#if 1'
 
-    '' + pkgs.lib.optionalString static ''
-      # FindSoup3.cmake: pkg-config version detection fails in cross builds.
-      substituteInPlace Source/cmake/FindSoup3.cmake \
-        --replace-fail 'set(Soup3_VERSION ''${PC_Soup3_VERSION})' \
-          'set(Soup3_VERSION ''${PC_Soup3_VERSION})
-if (NOT Soup3_VERSION)
-    set(Soup3_VERSION "3.6.5")
-endif()'
-
-      # GStreamerChecks.cmake: checks PC_GSTREAMER_FULL_FOUND (pkg-config) which fails
-      # in cross builds. Patch to check the actual library variable instead.
-      substituteInPlace Source/cmake/GStreamerChecks.cmake \
-        --replace-fail 'NOT PC_GSTREAMER_FULL_FOUND' 'NOT GSTREAMER_FULL_LIBRARIES'
-
-      # Axium: static build — produce libWPEWebKit-2.0.a instead of .so.
-      # No cmake flag exists for this — WebKit_LIBRARY_TYPE is hardcoded.
-      substituteInPlace Source/cmake/WebKitCommon.cmake \
-        --replace-fail 'set(WebKit_LIBRARY_TYPE SHARED)' 'set(WebKit_LIBRARY_TYPE STATIC)'
-
-      # Axium: WPE sets internal frameworks (bmalloc, WTF, JSC, WebCore) to OBJECT type
-      # so they get folded into libWPEWebKit.so. With STATIC WebKit, the OBJECT→exe
-      # propagation through cmake aliases breaks. Change to STATIC so they produce
-      # separate .a files that link properly into WPEWebProcess/WPENetworkProcess.
-      substituteInPlace Source/cmake/OptionsWPE.cmake \
-        --replace-fail 'set(bmalloc_LIBRARY_TYPE OBJECT)' 'set(bmalloc_LIBRARY_TYPE STATIC)' \
-        --replace-fail 'set(WTF_LIBRARY_TYPE OBJECT)' 'set(WTF_LIBRARY_TYPE STATIC)' \
-        --replace-fail 'set(JavaScriptCore_LIBRARY_TYPE OBJECT)' 'set(JavaScriptCore_LIBRARY_TYPE STATIC)' \
-        --replace-fail 'set(WebCore_LIBRARY_TYPE OBJECT)' 'set(WebCore_LIBRARY_TYPE STATIC)'
-
-      # Axium: disable --gc-sections — conflicts with LTO bitcode from deps (glib).
-      # LTO does its own dead code elimination, making --gc-sections redundant.
-      # Can't use -DLD_SUPPORTS_GC_SECTIONS=OFF — cmake set() shadows cache vars.
-      substituteInPlace Source/cmake/OptionsCommon.cmake \
-        --replace-fail 'if (LD_SUPPORTS_GC_SECTIONS)' 'if (FALSE) # Axium: LTO handles DCE'
-
-      # Ensure cmake installs the static archive (LIBRARY only covers shared libs).
-      substituteInPlace Source/WebKit/CMakeLists.txt \
-        --replace-fail \
-          'install(TARGETS WebKit WebProcess NetworkProcess' \
-          'install(TARGETS WebKit WebProcess NetworkProcess
-    ARCHIVE DESTINATION "''${LIB_INSTALL_DIR}"'
-
-      # Axium: --whole-archive for GStreamer is target-specific (would break cmake try_compile).
-      # Transitive -l deps and linker options go in CMAKE_EXE/MODULE_LINKER_FLAGS (harmless
-      # for try_compile — unused libs get ignored).
-      gst_whole="$(echo ${gstreamer.drv}/lib/libgst*.a) $(echo ${gstreamer.drv}/lib/gstreamer-1.0/lib*.a)"
-      cat >> Source/WebKit/CMakeLists.txt << GSTEOF
-
-# Axium: GStreamer --whole-archive — target-specific to avoid poisoning cmake try_compile.
-# WebProcess/NetworkProcess use keyword signature (PRIVATE) per WebKitMacros.cmake.
-foreach(axium_target WebProcess NetworkProcess)
-  target_link_libraries(\''${axium_target} PRIVATE -Wl,--whole-archive $gst_whole -Wl,--no-whole-archive)
-endforeach()
-GSTEOF
-    '' + ''
-      # Axium: expose process/preference settings via environment variables.
-      # All use !g_getenv("AXIUM_DISABLE_*") — enabled by default, disabled when set.
+      # ── Preferences / env vars ──
+      # Expose process/preference settings via AXIUM_DISABLE_* environment variables.
       substituteInPlace Source/WebKit/UIProcess/API/glib/WebKitWebContext.cpp \
         --replace-fail 'configuration->setUsesWebProcessCache(true);' \
           'configuration->setUsesWebProcessCache(!g_getenv("AXIUM_DISABLE_PROCESS_CACHE"));' \
@@ -207,6 +130,115 @@ GSTEOF
     setLazyIframeLoadingEnabled(!g_getenv("AXIUM_DISABLE_LAZY_IFRAMES"));
     setSpeculationRulesPrefetchEnabled(!g_getenv("AXIUM_DISABLE_SPECULATIVE_PREFETCH"));'
 
+    '' + pkgs.lib.optionalString (!gpu) ''
+      # ── CPU-only rendering ──
+      # Force NonCompositedFrameRenderer (Skia CPU raster).
+      substituteInPlace Source/WebKit/UIProcess/wpe/WebPreferencesWPE.cpp \
+        --replace-fail 'setAcceleratedCompositingEnabled(true)' 'setHardwareAccelerationEnabled(false); setAcceleratedCompositingEnabled(false)' \
+        --replace-fail 'setForceCompositingMode(true)' 'setForceCompositingMode(false)'
+
+      # Won't compile without libdrm.
+      substituteInPlace Source/WebKit/UIProcess/wpe/AcceleratedBackingStore.cpp \
+        --replace-fail 'if (wpe_buffer_dma_buf_get_format(dmaBuffer) == DRM_FORMAT_XRGB8888)' 'if (false)'
+
+      # Requires USE(GBM).
+      substituteInPlace Source/WebCore/platform/graphics/skia/SkiaPaintingEngine.cpp \
+        --replace-fail 'if (!texture->memoryMappedGPUBuffer())' 'if (false)'
+
+      # Skip fallback EGL display creation.
+      substituteInPlace Source/WebKit/WebProcess/glib/WebProcessGLib.cpp \
+        --replace-fail 'if (PlatformDisplay::sharedDisplayIfExists())' 'if (true)'
+
+      # ── LTO GPU stripping ──
+      # Compile-time constants that let LTO prove GPU code is unreachable and strip
+      # ~400 files (Skia Ganesh, TextureMapper GL, GPU RenderTargets, EGL contexts).
+
+      # Kills GPU ImageBuffer + SkiaPaintingEngine GPU paths.
+      substituteInPlace Source/WebCore/platform/ProcessCapabilities.cpp \
+        --replace-fail \
+          'return s_canUseAcceleratedBuffers;' \
+          'return false;'
+
+      # Severs Skia Ganesh backend, SkiaGPUAtlas, GrDirectContext.
+      substituteInPlace Source/WebCore/platform/graphics/skia/PlatformDisplaySkia.cpp \
+        --replace-fail \
+          'if (!s_skiaGLContext) {
+        s_skiaGLContext = SkiaGLContext::create(*this);
+        m_skiaGLContexts.add(*s_skiaGLContext);
+    }
+    return s_skiaGLContext->skiaGLContext();' \
+          'return nullptr;' \
+        --replace-fail \
+          'RELEASE_ASSERT(s_skiaGLContext);
+    return s_skiaGLContext->skiaGrContext();' \
+          'return nullptr;'
+
+      # Severs TextureMapper GL and BitmapTexturePool GPU paths.
+      substituteInPlace Source/WebCore/platform/graphics/PlatformDisplay.cpp \
+        --replace-fail \
+          'if (!m_sharingGLContext)
+        m_sharingGLContext = GLContext::createSharing(*this);
+    return m_sharingGLContext.get();' \
+          'return nullptr;'
+
+      # Force SharedMemoryWithoutGL — kills GPU RenderTargets, skips GL context.
+      substituteInPlace Source/WebKit/WebProcess/WebPage/CoordinatedGraphics/AcceleratedSurface.cpp \
+        --replace-fail \
+          'if (renderingPurpose == RenderingPurpose::NonComposited && !useHardwareBuffersForFrameRendering) {' \
+          'if (true) {'
+
+    '' + pkgs.lib.optionalString static ''
+      # ── Static build: cmake fixes ──
+      # FindSoup3.cmake: pkg-config version detection fails in cross builds.
+      substituteInPlace Source/cmake/FindSoup3.cmake \
+        --replace-fail 'set(Soup3_VERSION ''${PC_Soup3_VERSION})' \
+          'set(Soup3_VERSION ''${PC_Soup3_VERSION})
+if (NOT Soup3_VERSION)
+    set(Soup3_VERSION "3.6.5")
+endif()'
+
+      # GStreamerChecks.cmake: checks PC_GSTREAMER_FULL_FOUND (pkg-config) which fails
+      # in cross builds. Patch to check the actual library variable instead.
+      substituteInPlace Source/cmake/GStreamerChecks.cmake \
+        --replace-fail 'NOT PC_GSTREAMER_FULL_FOUND' 'NOT GSTREAMER_FULL_LIBRARIES'
+
+      # ── Static build: library types ──
+      # Produce libWPEWebKit-2.0.a instead of .so (no cmake flag exists for this).
+      substituteInPlace Source/cmake/WebKitCommon.cmake \
+        --replace-fail 'set(WebKit_LIBRARY_TYPE SHARED)' 'set(WebKit_LIBRARY_TYPE STATIC)'
+
+      # Internal frameworks (bmalloc, WTF, JSC, WebCore) are OBJECT type so they fold
+      # into libWPEWebKit.so. With STATIC WebKit, OBJECT→exe propagation breaks.
+      # Change to STATIC for proper .a linking into WPEWebProcess/WPENetworkProcess.
+      substituteInPlace Source/cmake/OptionsWPE.cmake \
+        --replace-fail 'set(bmalloc_LIBRARY_TYPE OBJECT)' 'set(bmalloc_LIBRARY_TYPE STATIC)' \
+        --replace-fail 'set(WTF_LIBRARY_TYPE OBJECT)' 'set(WTF_LIBRARY_TYPE STATIC)' \
+        --replace-fail 'set(JavaScriptCore_LIBRARY_TYPE OBJECT)' 'set(JavaScriptCore_LIBRARY_TYPE STATIC)' \
+        --replace-fail 'set(WebCore_LIBRARY_TYPE OBJECT)' 'set(WebCore_LIBRARY_TYPE STATIC)'
+
+      # ── Static build: linker config ──
+      # Disable --gc-sections — conflicts with LTO bitcode from deps (glib).
+      # LTO does its own dead code elimination, making --gc-sections redundant.
+      substituteInPlace Source/cmake/OptionsCommon.cmake \
+        --replace-fail 'if (LD_SUPPORTS_GC_SECTIONS)' 'if (FALSE) # Axium: LTO handles DCE'
+
+      # Ensure cmake installs the static archive (LIBRARY only covers shared libs).
+      substituteInPlace Source/WebKit/CMakeLists.txt \
+        --replace-fail \
+          'install(TARGETS WebKit WebProcess NetworkProcess' \
+          'install(TARGETS WebKit WebProcess NetworkProcess
+    ARCHIVE DESTINATION "''${LIB_INSTALL_DIR}"'
+
+      # GStreamer --whole-archive — target-specific to avoid poisoning cmake try_compile.
+      gst_whole="$(echo ${gstreamer.drv}/lib/libgst*.a) $(echo ${gstreamer.drv}/lib/gstreamer-1.0/lib*.a)"
+      cat >> Source/WebKit/CMakeLists.txt << GSTEOF
+
+# Axium: GStreamer --whole-archive — target-specific to avoid poisoning cmake try_compile.
+# WebProcess/NetworkProcess use keyword signature (PRIVATE) per WebKitMacros.cmake.
+foreach(axium_target WebProcess NetworkProcess)
+  target_link_libraries(\''${axium_target} PRIVATE -Wl,--whole-archive $gst_whole -Wl,--no-whole-archive)
+endforeach()
+GSTEOF
     '';
 
     nativeBuildInputs = with hostPkgs; [
@@ -221,11 +253,9 @@ GSTEOF
       glib
     ];
 
-    buildInputs = with pkgs; [
-      # Core
+    buildInputs = [ hb ] ++ (with pkgs; [
       glib
       libffi            # transitive dep of gobject (gclosure marshalling)
-    ] ++ [ hb ] ++ (with pkgs; [
       icu
       libjpeg
       libgcrypt
@@ -238,21 +268,16 @@ GSTEOF
       sqlite
       zlib
       libwebp
-
-      libepoxy
-
+      libepoxy          # Skia cmake requires it; LTO strips unused GL symbols
+      freetype
+      fontconfig
+      expat
     ]) ++ (if static then [ gstreamer.drv ] ++ gstreamer.buildInputs else with pkgs; [
-      # GStreamer (video/audio playback) — nixpkgs packages for dynamic build
       gst_all_1.gstreamer
       gst_all_1.gst-plugins-base
       gst_all_1.gst-plugins-good
       gst_all_1.gst-plugins-bad
-    ]) ++ (with pkgs; [
-      freetype
-      fontconfig
-      expat
     ]) ++ pkgs.lib.optionals gpu (with pkgs; [
-      # GPU compositing: GBM (DMA-BUF buffer sharing) + libdrm (kernel DRM ioctls)
       libdrm
       libgbm
       mesa
@@ -347,7 +372,6 @@ GSTEOF
       # Deps use full LTO via the crossOverlay — compatible with thin here.
       "-DLTO_MODE=thin"
       "-DUSE_THIN_ARCHIVES=OFF"
-      # CMAKE_EXE_LINKER_FLAGS set via preConfigure (contains spaces)
       # Use monolithic gstreamer-full-1.0 instead of individual gstreamer libs.
       # WebKit cmake has first-class support: links only gstreamer-full-1.0
       # and skips all per-library pkg-config lookups.

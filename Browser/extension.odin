@@ -3,7 +3,6 @@ package axium
 import "base:runtime"
 import "core:c"
 import "core:crypto/ed25519"
-import "core:dynlib"
 import "core:encoding/base64"
 import "core:encoding/json"
 import "core:fmt"
@@ -22,15 +21,18 @@ Ext_Entry :: struct {
     name:    string,
     id:      string,
 
-    // Native code (.so loaded from signed extension archives)
-    native_lib:            dynlib.Library,
-    native_memfd:          linux.Fd,
-    native_init:           proc "c" (),
-    native_shutdown:       proc "c" (),
-    native_handle_message: proc(payload: cstring, reply: rawptr, ctx: rawptr),
+    // Out-of-process extension (standalone executable over socketpair)
+    proc_fd:   linux.Fd,   // socketpair fd to child process
+    proc_pid:  linux.Pid,  // child PID (for waitpid on shutdown)
+    // Incremental read state for non-blocking frame reads
+    read_hdr:  [4]u8,
+    read_hpos: int,
+    read_buf:  []u8,
+    read_bpos: int,
 }
 
 extensions: [dynamic]Ext_Entry
+ext_command_owners: map[string]string  // command name → ext id
 
 // ---------------------------------------------------------------------------
 // Adblock content script (embedded, registered in isolated world)
@@ -113,6 +115,129 @@ ext_mime :: proc(name: string) -> string {
     if strings.has_suffix(name, ".woff2") do return "font/woff2"
     if strings.has_suffix(name, ".ttf")  do return "font/ttf"
     return "application/octet-stream"
+}
+
+// ---------------------------------------------------------------------------
+// Wire protocol — 4-byte LE length prefix + payload
+// ---------------------------------------------------------------------------
+
+ext_write_frame :: proc(fd: linux.Fd, data: []u8) -> bool {
+    hdr: [4]u8
+    l := u32(len(data))
+    hdr[0] = u8(l)
+    hdr[1] = u8(l >> 8)
+    hdr[2] = u8(l >> 16)
+    hdr[3] = u8(l >> 24)
+
+    written := 0
+    for written < 4 {
+        n, err := linux.write(fd, hdr[written:])
+        if err != .NONE do return false
+        written += n
+    }
+    written = 0
+    for written < len(data) {
+        n, err := linux.write(fd, data[written:])
+        if err != .NONE do return false
+        written += n
+    }
+    return true
+}
+
+// Non-blocking incremental read. Returns a complete frame or nil.
+ext_read_frame :: proc(ext: ^Ext_Entry) -> []u8 {
+    // Read header bytes
+    for ext.read_hpos < 4 {
+        n, err := linux.read(ext.proc_fd, ext.read_hdr[ext.read_hpos:])
+        if err == .EAGAIN || n == 0 do return nil
+        if err != .NONE {
+            ext.read_hpos = 0
+            return nil
+        }
+        ext.read_hpos += n
+    }
+
+    // Header complete — allocate payload buffer if needed
+    if ext.read_buf == nil {
+        payload_len := int(read_u32_le(ext.read_hdr[:]))
+        if payload_len <= 0 || payload_len > 16 * 1024 * 1024 {
+            ext.read_hpos = 0
+            return nil
+        }
+        ext.read_buf = make([]u8, payload_len)
+        ext.read_bpos = 0
+    }
+
+    // Read payload bytes
+    for ext.read_bpos < len(ext.read_buf) {
+        n, err := linux.read(ext.proc_fd, ext.read_buf[ext.read_bpos:])
+        if err == .EAGAIN || n == 0 do return nil
+        if err != .NONE {
+            delete(ext.read_buf)
+            ext.read_buf = nil
+            ext.read_hpos = 0
+            return nil
+        }
+        ext.read_bpos += n
+    }
+
+    // Frame complete
+    result := ext.read_buf
+    ext.read_buf = nil
+    ext.read_hpos = 0
+    ext.read_bpos = 0
+    return result
+}
+
+// Poll callback — registered for each extension process fd.
+// On wakeup, drains all readable extensions.
+ext_poll_readable :: proc() {
+    context = runtime.default_context()
+    for &ext in extensions {
+        if ext.proc_fd <= 0 do continue
+        for {
+            frame := ext_read_frame(&ext)
+            if frame == nil do break
+            defer delete(frame)
+
+            parsed, perr := json.parse(frame)
+            if perr != .None do continue
+            defer json.destroy_value(parsed)
+
+            obj := parsed.(json.Object) or_else nil
+            if obj == nil do continue
+
+            // Command registration from extension
+            if cmd_str, cok := obj["cmd"].(json.String); cok {
+                ext_command_owners[strings.clone(cmd_str)] = ext.id
+                continue
+            }
+
+            // Command execution from extension
+            if exec_str, eok := obj["exec"].(json.String); eok {
+                execute_command(exec_str)
+                continue
+            }
+
+            r_val := u64(obj["r"].(json.Float) or_else 0)
+            c_val := u64(obj["c"].(json.Float) or_else 0)
+            d_str  := obj["d"].(json.String) or_else ""
+
+            if r_val != 0 {
+                // Reply to a content script request
+                d_cstr := strings.clone_to_cstring(d_str)
+                defer delete(d_cstr)
+                engine_extension_reply(rawptr(uintptr(r_val)), rawptr(uintptr(c_val)), d_cstr)
+            } else if d_str != "" {
+                // Push message from extension
+                if tab_val, tok := obj["tab"].(json.Float); tok {
+                    extension_send_tab_message(ext.id, int(tab_val), d_str)
+                } else {
+                    extension_broadcast_message(ext.id, d_str)
+                }
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -442,64 +567,99 @@ window.chrome=browser;
         }
     }
 
-    // Load native .so from archive (if present)
-    ext_try_load_native(ext, zip_data, zip_entries)
+    // Spawn extension process from archive (if present)
+    ext_try_spawn_process(ext, zip_data, zip_entries)
 }
 
 // ---------------------------------------------------------------------------
-// Native .so loading (memfd + dlopen)
+// Extension process spawning (memfd + fork/exec over socketpair)
 // ---------------------------------------------------------------------------
 
-ext_try_load_native :: proc(ext: ^Ext_Entry, zip_data: []u8, entries: []Zip_Entry) {
-    so_bytes := ext_extract_file(zip_data, entries, "extension.so")
-    if so_bytes == nil do return
+ext_try_spawn_process :: proc(ext: ^Ext_Entry, zip_data: []u8, entries: []Zip_Entry) {
+    bin_bytes := ext_extract_file(zip_data, entries, "extension.bin")
+    if bin_bytes == nil do return
 
-    sig_bytes := ext_extract_file(zip_data, entries, "extension.so.sig")
+    sig_bytes := ext_extract_file(zip_data, entries, "extension.bin.sig")
     if sig_bytes == nil {
-        fmt.eprintln("[ext]", ext.name, "— extension.so present but no signature, skipping")
-        delete(so_bytes)
+        fmt.eprintln("[ext]", ext.name, "— extension.bin present but no signature, skipping")
+        delete(bin_bytes)
         return
     }
     defer delete(sig_bytes)
 
-    if !ext_verify_signature(so_bytes, sig_bytes) {
+    if !ext_verify_signature(bin_bytes, sig_bytes) {
         fmt.eprintln("[ext]", ext.name, "— signature verification failed, skipping")
-        delete(so_bytes)
+        delete(bin_bytes)
         return
     }
 
+    // Write executable to memfd
     fd_name := strings.clone_to_cstring(fmt.tprintf("ext-%s", ext.id))
     defer delete(fd_name)
 
-    fd, errno := linux.memfd_create(fd_name, {.CLOEXEC})
-    if errno != .NONE {
-        fmt.eprintln("[ext]", ext.name, "— memfd_create failed:", errno)
-        delete(so_bytes)
+    memfd, merr := linux.memfd_create(fd_name, {.CLOEXEC})
+    if merr != .NONE {
+        fmt.eprintln("[ext]", ext.name, "— memfd_create failed:", merr)
+        delete(bin_bytes)
         return
     }
 
-    linux.write(fd, so_bytes)
-    delete(so_bytes)
+    linux.write(memfd, bin_bytes)
+    delete(bin_bytes)
 
-    fd_path := fmt.tprintf("/proc/self/fd/%d", fd)
-    lib, lok := dynlib.load_library(fd_path)
-    // Keep memfd open — closing it would free the fd number for reuse,
-    // and glibc dlopen caches by path, so a subsequent dlopen of the same
-    // /proc/self/fd/N would return the first library's handle.
-    if !lok {
-        fmt.eprintln("[ext]", ext.name, "— failed to dlopen native library")
-        linux.close(fd)
+    // Make executable
+    linux.fchmod(memfd, {.IXUSR, .IRUSR})
+
+    // Create socketpair
+    fds: [2]linux.Fd
+    if serr := linux.socketpair(.UNIX, .STREAM, .HOPOPT, &fds); serr != .NONE {
+        fmt.eprintln("[ext]", ext.name, "— socketpair failed:", serr)
+        linux.close(memfd)
         return
     }
 
-    ext.native_lib = lib
-    ext.native_memfd = fd
-    ext.native_init = auto_cast dynlib.symbol_address(lib, fmt.tprintf("%s_init", ext.id))
-    ext.native_shutdown = auto_cast dynlib.symbol_address(lib, fmt.tprintf("%s_shutdown", ext.id))
-    ext.native_handle_message = auto_cast dynlib.symbol_address(lib, fmt.tprintf("%s_handle_message", ext.id))
+    // Set parent's end non-blocking for incremental reads
+    flags, _ := linux.fcntl(fds[0], linux.F_GETFL)
+    linux.fcntl(fds[0], linux.F_SETFL, flags + {.NONBLOCK})
 
-    if ext.native_init != nil do ext.native_init()
-    fmt.eprintln("[ext]", ext.name, "— loaded native code")
+    // Prepare execve args before fork (minimize child work)
+    memfd_path := fmt.ctprintf("/proc/self/fd/%d", memfd)
+    ext_id_c := strings.clone_to_cstring(ext.id)
+    argv := [2]cstring{ext_id_c, nil}
+    envp := [1]cstring{nil}
+
+    // Fork
+    pid, ferr := linux.fork()
+    if ferr != .NONE {
+        fmt.eprintln("[ext]", ext.name, "— fork failed:", ferr)
+        delete(ext_id_c)
+        linux.close(memfd)
+        linux.close(fds[0])
+        linux.close(fds[1])
+        return
+    }
+
+    if pid == 0 {
+        // --- Child process ---
+        linux.close(fds[0])  // close parent's end
+        if fds[1] != linux.Fd(3) {
+            linux.dup2(fds[1], linux.Fd(3))
+            linux.close(fds[1])
+        }
+        linux.execve(memfd_path, raw_data(argv[:]), raw_data(envp[:]))
+        linux.exit(127)  // execve failed
+    }
+
+    // --- Parent process ---
+    delete(ext_id_c)
+    linux.close(fds[1])  // close child's end
+    linux.close(memfd)   // child has its own fd table copy
+
+    ext.proc_fd = fds[0]
+    ext.proc_pid = pid
+
+    register_poll_fd(i32(fds[0]), ext_poll_readable)
+    fmt.eprintln("[ext]", ext.name, "— spawned process pid:", pid)
 }
 
 // ---------------------------------------------------------------------------
@@ -523,21 +683,41 @@ extension_handle_message :: proc "c" (c_ext_id: cstring, c_payload: cstring, rep
 
     for &ext in extensions {
         if ext.id != ext_id do continue
-        if ext.native_handle_message != nil {
-            fmt.eprintln("[ext]   → native handler")
-            ext.native_handle_message(c_payload, reply, ctx)
-            return  // .so owns reply+ctx — calls engine_extension_reply when done
+        if ext.proc_fd > 0 {
+            // Build envelope: {"r":<reply>,"c":<ctx>,"p":<payload>}
+            buf: strings.Builder
+            strings.builder_init(&buf)
+            defer strings.builder_destroy(&buf)
+            tab_url := ""
+            if active_tab >= 0 && active_tab < tab_count {
+                tab_url = tab_entries[active_tab].uri
+            }
+            url_json, _ := json.marshal(tab_url)
+            defer delete(url_json)
+            fmt.sbprintf(&buf, `{"r":%d,"c":%d,"t":%d,"u":%s,"p":`, uintptr(reply), uintptr(ctx), active_tab, string(url_json))
+            // Marshal payload string to get proper JSON escaping
+            payload_json, _ := json.marshal(payload_str)
+            strings.write_string(&buf, string(payload_json))
+            delete(payload_json)
+            strings.write_byte(&buf, '}')
+
+            frame_data := transmute([]u8)strings.to_string(buf)
+            if !ext_write_frame(ext.proc_fd, frame_data) {
+                fmt.eprintln("[ext]   → write failed, extension probably dead")
+                engine_extension_reply(reply, ctx, nil)
+            }
+            return  // extension process owns reply+ctx now
         }
-        fmt.eprintln("[ext]   → no native handler, replying null")
+        fmt.eprintln("[ext]   → no extension process, replying null")
         break
     }
 
-    // No native handler — reply with null
+    // No handler — reply with null
     engine_extension_reply(reply, ctx, nil)
 }
 
 // ---------------------------------------------------------------------------
-// Push messages — .so calls these via dlsym
+// Push messages — called from ext_poll_readable or engine.c
 // ---------------------------------------------------------------------------
 
 @(export)
@@ -580,11 +760,31 @@ ext_verify_signature :: proc(data: []u8, sig_bytes: []u8) -> bool {
 // Shutdown
 // ---------------------------------------------------------------------------
 
+// Dispatch a command to the extension that registered it
+ext_dispatch_command :: proc(cmd: string) {
+    ext_id, ok := ext_command_owners[cmd]
+    if !ok do return
+    for &ext in extensions {
+        if ext.id != ext_id do continue
+        if ext.proc_fd <= 0 do continue
+        buf: strings.Builder
+        strings.builder_init(&buf)
+        defer strings.builder_destroy(&buf)
+        fmt.sbprintf(&buf, `{"cmd":"%s"}`, cmd)
+        ext_write_frame(ext.proc_fd, transmute([]u8)strings.to_string(buf))
+        return
+    }
+}
+
 extension_shutdown :: proc() {
     for &ext in extensions {
-        if ext.native_shutdown != nil do ext.native_shutdown()
-        if ext.native_lib != nil do dynlib.unload_library(ext.native_lib)
-        if ext.native_memfd > 0 do linux.close(ext.native_memfd)
+        if ext.proc_fd > 0 {
+            unregister_poll_fd(i32(ext.proc_fd))
+            linux.close(ext.proc_fd)  // signals EOF to child
+            status: u32
+            linux.waitpid(ext.proc_pid, &status, {}, nil)
+        }
+        if ext.read_buf != nil do delete(ext.read_buf)
         delete(ext.name)
         delete(ext.id)
     }
