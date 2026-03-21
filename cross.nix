@@ -403,7 +403,8 @@ static inline long epoxy_static_stub_(void) { return 0; }'
         postInstall = ''
           find $out/share -maxdepth 1 -mindepth 1 ! -name "vala" -prune -exec rm -r {} \; || true
           find $out/share/vala -maxdepth 1 -mindepth 1 ! -name "vapi" -prune -exec rm -r {} \; || true
-          rm -rf $out/{.bin-unwrapped,etc,lib/pulse-*}
+          mv $out/lib/pulseaudio/*.a $out/lib/ || true
+          rm -rf $out/{.bin-unwrapped,etc,lib/pulse-*,lib/pulseaudio}
           moveToOutput lib/cmake "$dev"
           cp config.h $dev/include/pulse
         '';
