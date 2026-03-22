@@ -292,13 +292,16 @@ static inline long epoxy_static_stub_(void) { return 0; }'
         meta = old.meta // { badPlatforms = []; };
       });
       # ICU: trim locale data to English only (~28 MB savings).
-      # ICU data trimming: strip non-English locales, unused charset converters,
-      # RBNF, transliteration, and StringPrep profiles from the pre-built .dat file.
-      # Uses icupkg to surgically remove entries while keeping the proven build path.
-      # Verified unused in WebKit: .cnv (own charset handling), translit/ (no utrans_),
-      # rbnf/ (no RBNF calls), .spp (no usprep_ calls), unames.icu, ulayout.icu.
-      # Keeps: en* locales, root/pool/res_index, normalization, collation, break
-      # iterators, confusables, emoji data, uts46 (IDNA). ~6 MB vs 31 MB.
+      # ICU data trimming via icupkg on the pre-built .dat file.
+      # Removes: non-English locale .res (2-3 letter ISO 639 codes),
+      #   .cnv (charset converters), .spp (StringPrep), translit/, rbnf/,
+      #   cnvalias.icu, unames.icu, ulayout.icu.
+      # Keeps: en* locales, root/pool/res_index/supplementalData,
+      #   metadata .res (numberingSystems, plurals, metaZones, zoneinfo64,
+      #   keyTypeData, timezoneTypes, currencyNumericCodes, etc.),
+      #   .nrm, .brk, .dict, .cfu, .icu (confusables, emoji, collation).
+      # Locale .res = ^[a-z]{2,3}(\.res|_) pattern. Everything else is metadata.
+      # Tested incrementally: 31 MB -> ~7 MB, verified on YouTube.
       icu = let
         icupkg = "${prev.buildPackages.icu.dev}/bin/icupkg";
         trimIcuData = ''
@@ -306,9 +309,16 @@ static inline long epoxy_static_stub_(void) { return 0; }'
           if [ -f "$datfile" ]; then
             ${icupkg} -l "$datfile" > "$TMPDIR/icu-all.txt"
             {
-              grep '\.res$' "$TMPDIR/icu-all.txt" | grep -v '^en' | grep -v '/en' \
-                | grep -v -E '^(root|pool|res_index|supplementalData)\.' \
+              # Non-English locale .res: 2-3 letter language codes (ISO 639)
+              grep '\.res$' "$TMPDIR/icu-all.txt" \
+                | grep -E '^[a-z]{2,3}(\.res$|_)' \
+                | grep -v '^en' | grep -v '^res_index\.'
+              # Same for subdirectories (coll/, curr/, lang/, etc.)
+              grep '\.res$' "$TMPDIR/icu-all.txt" \
+                | grep -E '/[a-z]{2,3}(\.res$|_)' \
+                | grep -v '/en' \
                 | grep -v -E '/(root|pool|res_index)\.'
+              # Unused infrastructure
               grep '\.cnv$' "$TMPDIR/icu-all.txt"
               grep '\.spp$' "$TMPDIR/icu-all.txt"
               grep -E '^(cnvalias\.icu|unames\.icu|ulayout\.icu)$' "$TMPDIR/icu-all.txt"
